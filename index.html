@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Chat</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 设置面板 -->
+        <div class="settings-panel" id="settingsPanel">
+            <div class="settings-content">
+                <h1>🤖 AI Agent</h1>
+                <p class="subtitle">选择你的 AI 助手人设</p>
+                
+                <div class="form-group">
+                    <label>人设模板</label>
+                    <div class="select-grid" id="promptGrid">
+                        <!-- 动态加载 -->
+                    </div>
+                </div>
+                
+                <button class="start-btn" id="startBtn" disabled>
+                    开始对话
+                </button>
+                
+                <p class="hint" id="hintText">请选择一个人设模板</p>
+            </div>
+        </div>
+
+        <!-- 聊天界面 -->
+        <div class="chat-panel" id="chatPanel" style="display: none;">
+            <header class="chat-header">
+                <div class="header-left">
+                    <h1>🤖 AI Agent</h1>
+                    <span class="provider-badge" id="providerBadge">Kimi</span>
+                    <span class="tool-badge" id="toolBadge">0 tools</span>
+                </div>
+                <div class="header-right">
+                    <button class="icon-btn" id="resetBtn" title="重置对话">🔄</button>
+                    <button class="icon-btn" id="settingsBtn" title="设置">⚙️</button>
+                </div>
+            </header>
+
+            <div class="chat-container" id="chatContainer">
+                <div class="welcome-message">
+                    <p>👋 你好！我是 AI 助手，有什么可以帮助你的吗？</p>
+                </div>
+            </div>
+
+            <div class="input-container">
+                <textarea 
+                    id="userInput" 
+                    placeholder="输入你的消息... (Enter 发送，Shift+Enter 换行)" 
+                    rows="1"
+                ></textarea>
+                <button id="sendBtn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
