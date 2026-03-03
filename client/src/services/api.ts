@@ -1,0 +1,46 @@
+/** 后端 API 服务 */
+
+const API_BASE = '/api'
+
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${url}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || res.statusText)
+  }
+  return res.json()
+}
+
+export const api = {
+  getPrompts: () => request<{ id: string; name: string; description: string }[]>('/prompts'),
+
+  getProviders: () => request<{ id: string; name: string; available: boolean }[]>('/providers'),
+
+  createSession: (promptTemplate: string, provider?: string) =>
+    request<{ success: boolean; sessionId: string; provider: string; toolCount: number }>(
+      '/session',
+      { method: 'POST', body: JSON.stringify({ promptTemplate, provider }) },
+    ),
+
+  sendMessage: (sessionId: string, message: string) =>
+    request<{ success: boolean; response: string; toolCalls: any[] }>(
+      '/chat',
+      { method: 'POST', body: JSON.stringify({ sessionId, message }) },
+    ),
+
+  resetSession: (sessionId: string) =>
+    request<{ success: boolean }>('/reset', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    }),
+
+  deleteSession: (sessionId: string) =>
+    request<{ success: boolean }>(`/session/${sessionId}`, { method: 'DELETE' }),
+
+  getCases: () => request<any[]>('/cases'),
+
+  getCaseDetail: (caseId: string) => request<any>(`/cases/${caseId}`),
+}

@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "tools": {
-      "command": "node_modules/.bin/tsx",
-      "args": ["src/mcp-servers/tools-server.ts"]
-    }
-  }
-}
