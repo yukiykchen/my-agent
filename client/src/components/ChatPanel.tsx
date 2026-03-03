@@ -102,7 +102,7 @@ export default function ChatPanel({ session, onBack }: Props) {
         </div>
         <div className="header-right">
           <button className="icon-btn" onClick={handleReset} title="重置对话">🔄</button>
-          <button className="icon-btn" onClick={handleBack} title="返回">⚙️</button>
+          <button className="icon-btn" onClick={handleBack} title="新对话">🆕</button>
         </div>
       </header>
 

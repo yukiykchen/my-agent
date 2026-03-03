@@ -87,7 +87,7 @@ type ContentItem struct {
 
 func getWeather(city string) (string, error) {
 	// 使用 wttr.in 免费天气 API
-	url := fmt.Sprintf("https://wttr.in/%s?format=j1", urlEncode(city))
+	url := fmt.Sprintf("http://wttr.in/%s?format=j1", urlEncode(city))
 	
 	resp, err := http.Get(url)
 	if err != nil {
