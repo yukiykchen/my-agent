@@ -19,6 +19,7 @@ import (
 	"infringement-agent-server/internal/agent"
 	"infringement-agent-server/internal/config"
 	"infringement-agent-server/internal/evidence"
+	"infringement-agent-server/internal/mcp"
 	"infringement-agent-server/internal/prompt"
 	"infringement-agent-server/internal/providers"
 	"infringement-agent-server/internal/tools"
@@ -41,6 +42,8 @@ var (
 	toolRegistry  *tools.Registry
 	promptMgr     *prompt.Manager
 	evidenceStore *evidence.Store
+	mcpClient     *mcp.Client
+	mcpBridge     *mcp.Bridge
 )
 
 func main() {
@@ -51,6 +54,24 @@ func main() {
 	// 初始化工具注册中心
 	toolRegistry = tools.NewRegistry()
 	tools.RegisterBuiltinTools(toolRegistry)
+
+	// 初始化 MCP 客户端
+	mcpClient = mcp.NewClient()
+	if err := mcpClient.LoadConfig(".mcp.json"); err != nil {
+		log.Printf("⚠️  加载 MCP 配置失败: %v", err)
+	}
+	if mcpClient.HasServers() {
+		fmt.Println("  ℹ  发现 MCP 服务器配置，正在连接...")
+		if err := mcpClient.ConnectAll(); err != nil {
+			log.Printf("⚠️  MCP 连接失败: %v", err)
+		}
+		mcpBridge = mcp.NewBridge(mcpClient, toolRegistry)
+		if count, err := mcpBridge.RegisterAll(); err != nil {
+			log.Printf("⚠️  MCP 工具注册失败: %v", err)
+		} else {
+			fmt.Printf("  ✅ MCP 工具注册完成，共 %d 个工具\n", count)
+		}
+	}
 
 	// 初始化提示词管理器
 	promptMgr = prompt.NewManager("./prompts")
@@ -83,6 +104,7 @@ func main() {
 		api.GET("/providers", handleProviders)
 		api.GET("/prompts", handlePrompts)
 		api.GET("/tools", handleTools)
+		api.GET("/mcp/status", handleMCPStatus)
 
 		// 会话管理
 		api.POST("/session", handleCreateSession)
@@ -102,6 +124,7 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 		log.Println("\n正在关闭服务...")
+		// 关闭 WebSocket 连接
 		sessionsMu.Lock()
 		for _, s := range sessions {
 			s.mu.Lock()
@@ -111,6 +134,10 @@ func main() {
 			s.mu.Unlock()
 		}
 		sessionsMu.Unlock()
+		// 断开 MCP 服务器
+		if mcpClient != nil {
+			mcpClient.DisconnectAll()
+		}
 		os.Exit(0)
 	}()
 
@@ -206,14 +233,31 @@ func handleTools(c *gin.Context) {
 	defs := toolRegistry.GetDefinitions()
 	result := make([]gin.H, 0, len(defs))
 	for _, d := range defs {
+		toolType := "builtin"
+		if len(d.Function.Name) > 4 && d.Function.Name[:4] == "mcp_" {
+			toolType = "mcp"
+		}
 		result = append(result, gin.H{
 			"name":        d.Function.Name,
 			"description": d.Function.Description,
-			"type":        "builtin",
+			"type":        toolType,
 			"parameters":  d.Function.Parameters,
 		})
 	}
 	c.JSON(200, result)
+}
+
+func handleMCPStatus(c *gin.Context) {
+	if mcpClient == nil {
+		c.JSON(200, gin.H{"servers": []interface{}{}, "tools": []interface{}{}})
+		return
+	}
+	status := mcpClient.GetServerStatus()
+	tools := mcpClient.GetTools()
+	c.JSON(200, gin.H{
+		"servers": status,
+		"tools":   tools,
+	})
 }
 
 func handleCreateSession(c *gin.Context) {

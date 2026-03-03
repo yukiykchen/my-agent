@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "weather": {
+      "command": "./mcp-servers/weather/weather-server",
+      "args": []
+    }
+  }
+}
