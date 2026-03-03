@@ -30,7 +30,7 @@ npm run build:server    # 编译 Go 二进制
 
 ### 配置环境变量
 
-复制 `.env` 文件并填入你的 API Key：
+创建一个 `.env` 文件并填入你的 API Key：
 
 ```bash
 # 至少配置一个模型的 API Key
