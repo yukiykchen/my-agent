@@ -42,3 +42,35 @@ export interface WSMessage {
   duration?: number
   message?: string
 }
+
+/** 截图工具返回结果 */
+export interface ScreenshotResult {
+  screenshotUrl: string
+  pageTitle: string
+  pageUrl: string
+  timestamp: string
+  viewport: { width: number; height: number }
+}
+
+/** 文本比对工具返回结果 */
+export interface TextCompareResult {
+  overallScore: number
+  cosineSimilarity: number
+  jaccardIndex: number
+  lcsRatio: number
+  verdict: string
+  details: string
+  text1Length: number
+  text2Length: number
+  commonWords: number
+}
+
+/** 增强版网页抓取结果 */
+export interface FetchPageResult {
+  title: string
+  content: string
+  url: string
+  author?: string
+  publishDate?: string
+  metadata?: Record<string, string>
+}

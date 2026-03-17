@@ -3,6 +3,17 @@
     "weather": {
       "command": "./mcp-servers/weather/weather-server",
       "args": []
+    },
+    "screenshot": {
+      "command": "./mcp-servers/screenshot/screenshot-server",
+      "args": [],
+      "env": {
+        "SCREENSHOT_DIR": "./data/screenshots"
+      }
+    },
+    "textcompare": {
+      "command": "./mcp-servers/textcompare/textcompare-server",
+      "args": []
     }
   }
 }

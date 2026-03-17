@@ -23,4 +23,12 @@ npm-debug.log*
 # Build
 *.tsbuildinfo
 
+# Go binaries
+server/mcp-servers/screenshot/screenshot-server
+server/mcp-servers/textcompare/textcompare-server
+server/mcp-servers/weather/weather-server
+
+# Data
+server/data/
+
 package-lock.json

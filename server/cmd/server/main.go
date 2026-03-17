@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -76,6 +78,12 @@ func main() {
 	// 初始化提示词管理器
 	promptMgr = prompt.NewManager("./prompts")
 
+	// 初始化截图存储目录
+	screenshotDir := "./data/screenshots"
+	if err := os.MkdirAll(screenshotDir, 0755); err != nil {
+		log.Printf("⚠️  截图目录创建失败: %v", err)
+	}
+
 	// 初始化证据存储
 	evidenceStore = evidence.NewStore("")
 	if err := evidenceStore.Init(); err != nil {
@@ -116,6 +124,9 @@ func main() {
 		api.GET("/cases", handleListCases)
 		api.GET("/cases/:caseId", handleGetCase)
 		api.GET("/evidence/:caseId/:filename", handleGetEvidence)
+
+		// 截图静态文件服务
+		api.GET("/screenshots/:filename", handleScreenshot)
 	}
 
 	// 优雅关闭
@@ -436,6 +447,21 @@ func handleGetEvidence(c *gin.Context) {
 }
 
 // ==================== Helpers ====================
+
+func handleScreenshot(c *gin.Context) {
+	filename := c.Param("filename")
+	// 安全检查：防止路径穿越
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		c.JSON(400, gin.H{"error": "无效的文件名"})
+		return
+	}
+	filePath := filepath.Join("./data/screenshots", filename)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		c.JSON(404, gin.H{"error": "截图文件不存在"})
+		return
+	}
+	c.File(filePath)
+}
 
 func init() {
 	// placeholder

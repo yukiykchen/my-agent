@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ChatMessage } from '../types'
 
 interface Props {
@@ -15,6 +16,11 @@ function formatContent(content: string): string {
     return `<pre><code class="lang-${lang}">${code.trim()}</code></pre>`
   })
 
+  // Images (Markdown syntax: ![alt](url))
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => {
+    return `<div class="message-image-wrapper"><img src="${url}" alt="${alt}" class="message-image" data-clickable="true" /><span class="image-caption">${alt || ''}</span></div>`
+  })
+
   // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
 
@@ -28,12 +34,32 @@ function formatContent(content: string): string {
 }
 
 export default function MessageBubble({ message }: Props) {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+  const handleClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement
+    if (target.tagName === 'IMG' && target.dataset.clickable === 'true') {
+      setLightboxUrl((target as HTMLImageElement).src)
+    }
+  }
+
   return (
-    <div className={`message ${message.role}`}>
-      <div
-        className="message-content"
-        dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-      />
-    </div>
+    <>
+      <div className={`message ${message.role}`} onClick={handleClick}>
+        <div
+          className="message-content"
+          dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
+        />
+      </div>
+
+      {lightboxUrl && (
+        <div className="image-lightbox" onClick={() => setLightboxUrl(null)}>
+          <div className="lightbox-content">
+            <img src={lightboxUrl} alt="放大查看" />
+            <button className="lightbox-close" onClick={() => setLightboxUrl(null)}>✕</button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
