@@ -46,6 +46,12 @@ export default function App() {
   if (error) {
     return (
       <div className="app">
+        {/* 高级动态背景元素 */}
+        <div className="bg-grid"></div>
+        <div className="bg-blob blob-1"></div>
+        <div className="bg-blob blob-2"></div>
+        <div className="bg-blob blob-3"></div>
+        
         <div className="setup-panel">
           <div className="setup-content">
             <p className="error-text">连接失败: {error}</p>
@@ -59,9 +65,15 @@ export default function App() {
   if (!session) {
     return (
       <div className="app">
+        <div className="bg-grid"></div>
+        <div className="bg-blob blob-1"></div>
+        <div className="bg-blob blob-2"></div>
+        <div className="bg-blob blob-3"></div>
+
         <div className="setup-panel">
-          <div className="setup-content">
-            <p>连接中...</p>
+          <div className="setup-content loading-card">
+            <div className="spinner"></div>
+            <p className="loading-text">正在初始化侵权分析专家引擎...</p>
           </div>
         </div>
       </div>
@@ -70,6 +82,11 @@ export default function App() {
 
   return (
     <div className="app">
+      <div className="bg-grid"></div>
+      <div className="bg-blob blob-1"></div>
+      <div className="bg-blob blob-2"></div>
+      <div className="bg-blob blob-3"></div>
+      
       <ChatPanel session={session} onBack={handleReset} />
     </div>
   )

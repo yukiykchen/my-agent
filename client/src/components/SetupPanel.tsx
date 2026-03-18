@@ -50,10 +50,17 @@ export default function SetupPanel({ onSessionCreated }: Props) {
 
   return (
     <div className="setup-panel">
+      {/* 模糊背景圈圈 */}
+      <div style={{
+        position: 'absolute', top: '20%', left: '50%', transform: 'translate(-50%, -50%)',
+        width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, transparent 70%)',
+        borderRadius: '50%', pointerEvents: 'none', zIndex: -1, filter: 'blur(40px)'
+      }} />
+
       <div className="setup-content">
         <div className="setup-header">
-          <h1>⚖️ 网络侵权证据智能分析系统</h1>
-          <p className="subtitle">基于 ReAct Agent + Legal Syllogism 的智能侵权分析</p>
+          <h1>智能侵权证据分析系统</h1>
+          <p className="subtitle">基于 ReAct Agent + MCP 协议自动化取证</p>
         </div>
 
         <div className="form-group">

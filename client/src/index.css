@@ -5,27 +5,59 @@
 }
 
 :root {
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --surface-hover: #334155;
-  --text: #f1f5f9;
+  /* 极深紫黑太空背景 */
+  --bg: #030014;
+  
+  /* 高级毛玻璃面板层 */
+  --surface: rgba(15, 15, 25, 0.45);
+  --surface-solid: rgba(20, 20, 35, 0.7);
+  --surface-hover: rgba(30, 30, 50, 0.6);
+  
+  /* 文字高反差 */
+  --text: #ffffff;
   --text-secondary: #94a3b8;
-  --border: #334155;
-  --success: #22c55e;
-  --error: #ef4444;
-  --warning: #f59e0b;
-  --accent: #8b5cf6;
+  
+  /* 超薄发光边框 */
+  --border: rgba(255, 255, 255, 0.1);
+  --border-hover: rgba(255, 255, 255, 0.25);
+  
+  /* 极其吸睛的高级渐变霓虹色 */
+  --primary: #7e22ce; /* 深紫 */
+  --primary-glow: #a855f7;
+  --accent: #ec4899; /* 亮粉 */
+  --secondary: #0ea5e9; /* 亮蓝 */
+  
+  /* 状态颜色 */
+  --success: #10b981;
+  --success-glow: rgba(16, 185, 129, 0.4);
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --error: #f43f5e;
+  --error-bg: rgba(244, 63, 94, 0.15);
+  
+  /* 发光阴影与毛玻璃模糊度 */
+  --shadow-sm: 0 4px 15px -3px rgba(0, 0, 0, 0.5);
+  --shadow-neon: 0 0 20px rgba(168, 85, 247, 0.35);
+  --glass-blur: blur(24px);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: var(--bg);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
+  overflow-x: hidden;
 }
 
 #root {
   min-height: 100vh;
+}
+
+::selection {
+  background: var(--primary-glow);
+  color: white;
+  text-shadow: 0 0 8px rgba(255,255,255,0.8);
 }
