@@ -1003,6 +1003,16 @@
   animation: pulse 1.5s infinite;
 }
 
+.thinking-step-warning {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.thinking-indicator.summarizing {
+  border-left: 3px solid #fbbf24;
+  padding-left: 12px;
+}
+
 .thinking-tool-item {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.8rem;

@@ -131,14 +131,45 @@ func (a *Agent) ChatWithAttachments(userMessage string, attachments []models.Att
 
 	var finalResponse string
 
+	// 预留最后 1 轮用于阶段性总结（至少需要 3 轮才启用该机制）
+	summaryThreshold := a.config.MaxIterations - 1
+	if summaryThreshold < 2 {
+		summaryThreshold = a.config.MaxIterations
+	}
+
 	for a.isRunning && a.iterations < a.config.MaxIterations {
 		a.iterations++
+
+		// 检测是否即将达到上限，若是则请求 LLM 生成阶段性总结
+		if a.iterations >= summaryThreshold && a.isRunning {
+			if a.config.OnThinking != nil {
+				a.config.OnThinking("即将达到推理上限，正在生成阶段性总结...")
+			}
+			if a.config.Verbose {
+				log.Printf("⚠️ 第 %d 轮（已达阈值 %d），请求阶段性总结", a.iterations, summaryThreshold)
+			}
+
+			summaryResp, err := a.requestSummary(modelCfg)
+			if err != nil {
+				log.Printf("❌ 生成总结失败: %v", err)
+				finalResponse = "⚠️ 已达到最大推理轮次，总结生成失败。请尝试将任务拆分为更小的步骤后重新提问。"
+			} else {
+				finalResponse = summaryResp
+			}
+			a.messages = append(a.messages, models.Message{
+				Role:    models.RoleAssistant,
+				Content: models.NewTextContent(finalResponse),
+			})
+			a.isRunning = false
+			break
+		}
+
 		if a.config.OnThinking != nil {
-			a.config.OnThinking(fmt.Sprintf("第 %d 轮推理...", a.iterations))
+			a.config.OnThinking(fmt.Sprintf("第 %d/%d 轮推理...", a.iterations, a.config.MaxIterations))
 		}
 
 		if a.config.Verbose {
-			log.Printf("🤔 第 %d 轮推理...", a.iterations)
+			log.Printf("🤔 第 %d/%d 轮推理...", a.iterations, a.config.MaxIterations)
 		}
 
 		resp, err := a.provider.Chat(a.messages, toolDefs, modelCfg)
@@ -161,12 +192,45 @@ func (a *Agent) ChatWithAttachments(userMessage string, attachments []models.Att
 		}
 	}
 
+	// 兜底：理论上不应走到这里，但以防万一
 	if a.iterations >= a.config.MaxIterations && a.isRunning {
-		finalResponse = "达到最大迭代次数，任务可能未完成。"
+		finalResponse = "⚠️ 已达到最大推理轮次，任务可能未完全完成。您可以继续发送消息让我从当前进度继续。"
 		a.isRunning = false
 	}
 
 	return finalResponse, nil
+}
+
+// requestSummary 请求 LLM 生成阶段性总结（不允许工具调用）
+func (a *Agent) requestSummary(modelCfg models.ModelConfig) (string, error) {
+	// 注入总结指令
+	summaryInstruction := models.Message{
+		Role: models.RoleUser,
+		Content: models.NewTextContent(
+			"【系统提示】你已经接近最大推理轮次限制，请不要再调用任何工具，直接生成一份阶段性总结回复给用户。\n\n" +
+				"请按以下格式总结：\n" +
+				"## ✅ 已完成的工作\n（列出你目前已经完成的步骤和获取到的结果）\n\n" +
+				"## ⏳ 尚未完成的部分\n（列出还没来得及完成的任务）\n\n" +
+				"## 💡 建议\n（告诉用户接下来可以怎么做，比如可以继续发消息让你从当前进度继续，或者把任务拆分）\n\n" +
+				"请用中文回复，语气友好专业。",
+		),
+	}
+
+	// 临时追加到消息列表
+	messagesWithSummary := make([]models.Message, len(a.messages))
+	copy(messagesWithSummary, a.messages)
+	messagesWithSummary = append(messagesWithSummary, summaryInstruction)
+
+	// 不传工具定义，强制 LLM 只能生成文本回复
+	resp, err := a.provider.Chat(messagesWithSummary, nil, modelCfg)
+	if err != nil {
+		return "", err
+	}
+
+	// 将总结指令也追加到正式消息列表（保留上下文连贯性）
+	a.messages = append(a.messages, summaryInstruction)
+
+	return resp.Content, nil
 }
 
 // handleToolCalls 处理工具调用
