@@ -485,6 +485,106 @@
   text-shadow: 0 0 8px var(--secondary);
 }
 
+/* ===== Markdown Report Styles ===== */
+
+.md-h1 {
+  font-size: 1.6rem;
+  border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+  padding-bottom: 8px;
+  margin-top: 24px !important;
+}
+
+.md-h2 {
+  font-size: 1.3rem;
+  margin-top: 20px !important;
+  color: #c4b5fd !important;
+}
+
+.md-h3 {
+  font-size: 1.1rem;
+  margin-top: 16px !important;
+  color: #a78bfa !important;
+}
+
+.md-h4 {
+  font-size: 1rem;
+  margin-top: 12px !important;
+  color: #8b5cf6 !important;
+}
+
+.md-table-wrapper {
+  overflow-x: auto;
+  margin: 12px 0;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.md-table th {
+  background: rgba(168, 85, 247, 0.15);
+  color: #d8b4fe;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 2px solid rgba(168, 85, 247, 0.3);
+  white-space: nowrap;
+}
+
+.md-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.md-table tbody tr:hover {
+  background: rgba(168, 85, 247, 0.05);
+}
+
+.md-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.md-blockquote {
+  border-left: 3px solid rgba(168, 85, 247, 0.5);
+  padding: 8px 16px;
+  margin: 8px 0;
+  background: rgba(168, 85, 247, 0.05);
+  border-radius: 0 8px 8px 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-style: italic;
+}
+
+.md-hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 16px 0;
+}
+
+.md-ol, .md-ul {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+.md-ol li, .md-ul li {
+  margin: 4px 0;
+  line-height: 1.6;
+}
+
+.md-inline-code {
+  background: rgba(168, 85, 247, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #d8b4fe;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+}
+
 /* ===== Tool Call Block (Terminal Style) ===== */
 .tool-calls-block {
   align-self: flex-start;

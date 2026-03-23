@@ -18,6 +18,10 @@
     "webcrawl": {
       "command": "./mcp-servers/webcrawl/webcrawl-server",
       "args": []
+    },
+    "webcompare": {
+      "command": "./mcp-servers/webcompare/webcompare-server",
+      "args": []
     }
   }
 }
