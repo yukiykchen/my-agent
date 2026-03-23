@@ -37,11 +37,41 @@ func (p *OpenAICompatibleProvider) Name() string {
 
 // chatRequest OpenAI 请求体
 type chatRequest struct {
-	Model       string                 `json:"model"`
-	Messages    []models.Message       `json:"messages"`
+	Model       string                  `json:"model"`
+	Messages    []chatMessageForAPI     `json:"messages"`
 	Tools       []models.ToolDefinition `json:"tools,omitempty"`
-	Temperature float64                `json:"temperature"`
-	MaxTokens   int                    `json:"max_tokens"`
+	Temperature float64                 `json:"temperature"`
+	MaxTokens   int                     `json:"max_tokens"`
+}
+
+// chatMessageForAPI 发给 API 的消息格式
+// Content 需要支持 string 和 array 两种序列化
+type chatMessageForAPI struct {
+	Role       models.MessageRole `json:"role"`
+	Content    json.RawMessage    `json:"content"`
+	Name       string             `json:"name,omitempty"`
+	ToolCalls  []models.ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string             `json:"tool_call_id,omitempty"`
+}
+
+// convertMessagesToAPI 将内部 Message 转为 API 请求格式
+func convertMessagesToAPI(messages []models.Message) []chatMessageForAPI {
+	result := make([]chatMessageForAPI, 0, len(messages))
+	for _, msg := range messages {
+		apiMsg := chatMessageForAPI{
+			Role:       msg.Role,
+			Name:       msg.Name,
+			ToolCalls:  msg.ToolCalls,
+			ToolCallID: msg.ToolCallID,
+		}
+
+		// 序列化 Content（string 或 array）
+		contentBytes, _ := json.Marshal(msg.Content)
+		apiMsg.Content = contentBytes
+
+		result = append(result, apiMsg)
+	}
+	return result
 }
 
 // chatResponseChoice OpenAI 响应选项
@@ -73,7 +103,7 @@ func (p *OpenAICompatibleProvider) Chat(messages []models.Message, tools []model
 
 	reqBody := chatRequest{
 		Model:       model,
-		Messages:    messages,
+		Messages:    convertMessagesToAPI(messages),
 		Temperature: config.Temperature,
 		MaxTokens:   config.MaxTokens,
 	}

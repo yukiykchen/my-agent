@@ -22,11 +22,24 @@ export interface ToolCallLog {
   success: boolean
 }
 
+/** 附件类型 */
+export interface Attachment {
+  id: string
+  filename: string
+  mimeType: string
+  size: number
+  url: string        // 服务端访问路径
+  dataURI?: string   // base64 data URI（图片）
+  /** 前端预览用的本地 object URL */
+  previewUrl?: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   toolCalls?: ToolCallLog[]
+  attachments?: Attachment[]
   timestamp: number
 }
 

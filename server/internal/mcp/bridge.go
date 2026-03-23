@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"infringement-agent-server/internal/models"
 	"infringement-agent-server/internal/tools"
 )
@@ -29,22 +31,22 @@ func NewBridge(client *Client, registry *tools.Registry) *Bridge {
 func (b *Bridge) RegisterAll() (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	toolInfos := b.client.GetTools()
 	count := 0
-	
+
 	for _, info := range toolInfos {
 		toolName := fmt.Sprintf("mcp_%s_%s", info.Server, info.Name)
 		serverName := info.Server
-		
+
 		// 转换 InputSchema 到 FunctionParams
 		params := convertInputSchema(info.InputSchema)
-		
+
 		// 注册到工具中心
 		toolNameCopy := toolName
 		serverNameCopy := serverName
 		toolNameForCall := info.Name
-		
+
 		b.registry.Register(
 			toolNameCopy,
 			info.Description,
@@ -54,25 +56,36 @@ func (b *Bridge) RegisterAll() (int, error) {
 				if err != nil {
 					return "", err
 				}
-				if len(result.Content) > 0 {
-					return result.Content[0].Text, nil
-				}
-				return "", nil
+				// 从 mcp.CallToolResult 中提取文本内容
+				return extractTextFromResult(result), nil
 			},
 		)
-		
+
 		b.registered[toolNameCopy] = serverNameCopy
 		count++
 	}
-	
+
 	return count, nil
+}
+
+// extractTextFromResult 从 MCP SDK 的 CallToolResult 中提取文本
+func extractTextFromResult(result *mcp.CallToolResult) string {
+	if result == nil {
+		return ""
+	}
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			return textContent.Text
+		}
+	}
+	return ""
 }
 
 // GetRegisteredTools 获取已注册的 MCP 工具
 func (b *Bridge) GetRegisteredTools() map[string]string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	
+
 	result := make(map[string]string)
 	for k, v := range b.registered {
 		result[k] = v
@@ -85,11 +98,11 @@ func convertInputSchema(schema map[string]interface{}) models.FunctionParams {
 		Type:       "object",
 		Properties: make(map[string]models.PropertyDefine),
 	}
-	
+
 	if schema == nil {
 		return params
 	}
-	
+
 	if props, ok := schema["properties"].(map[string]interface{}); ok {
 		for name, p := range props {
 			if prop, ok := p.(map[string]interface{}); ok {
@@ -111,7 +124,7 @@ func convertInputSchema(schema map[string]interface{}) models.FunctionParams {
 			}
 		}
 	}
-	
+
 	if req, ok := schema["required"].([]interface{}); ok {
 		for _, v := range req {
 			if s, ok := v.(string); ok {
@@ -119,6 +132,6 @@ func convertInputSchema(schema map[string]interface{}) models.FunctionParams {
 			}
 		}
 	}
-	
+
 	return params
 }

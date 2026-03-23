@@ -74,22 +74,50 @@ func (a *Agent) Initialize() error {
 	}
 
 	a.messages = []models.Message{
-		{Role: models.RoleSystem, Content: systemPrompt},
+		{Role: models.RoleSystem, Content: models.NewTextContent(systemPrompt)},
 	}
 	return nil
 }
 
 // Chat 处理用户输入（ReAct 循环）
 func (a *Agent) Chat(userMessage string) (string, error) {
+	return a.ChatWithAttachments(userMessage, nil)
+}
+
+// ChatWithAttachments 处理带附件的用户输入（多模态）
+func (a *Agent) ChatWithAttachments(userMessage string, attachments []models.Attachment) (string, error) {
 	if len(a.messages) == 0 {
 		if err := a.Initialize(); err != nil {
 			return "", err
 		}
 	}
 
+	// 构造用户消息
+	var userContent models.MessageContent
+	if len(attachments) > 0 {
+		// 多模态消息：文本 + 图片
+		parts := []models.ContentPart{
+			{Type: "text", Text: userMessage},
+		}
+		for _, att := range attachments {
+			if att.DataURI != "" {
+				parts = append(parts, models.ContentPart{
+					Type: "image_url",
+					ImageURL: &models.ImageURL{
+						URL:    att.DataURI,
+						Detail: "auto",
+					},
+				})
+			}
+		}
+		userContent = models.NewMultimodalContent(parts)
+	} else {
+		userContent = models.NewTextContent(userMessage)
+	}
+
 	a.messages = append(a.messages, models.Message{
 		Role:    models.RoleUser,
-		Content: userMessage,
+		Content: userContent,
 	})
 
 	a.isRunning = true
@@ -127,7 +155,7 @@ func (a *Agent) Chat(userMessage string) (string, error) {
 			finalResponse = resp.Content
 			a.messages = append(a.messages, models.Message{
 				Role:    models.RoleAssistant,
-				Content: finalResponse,
+				Content: models.NewTextContent(finalResponse),
 			})
 			a.isRunning = false
 		}
@@ -145,7 +173,7 @@ func (a *Agent) Chat(userMessage string) (string, error) {
 func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, content string) {
 	a.messages = append(a.messages, models.Message{
 		Role:      models.RoleAssistant,
-		Content:   content,
+		Content:   models.NewTextContent(content),
 		ToolCalls: toolCalls,
 	})
 
@@ -200,7 +228,7 @@ func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, content string) {
 		a.messages = append(a.messages, models.Message{
 			Role:       models.RoleTool,
 			ToolCallID: tc.ID,
-			Content:    result,
+			Content:    models.NewTextContent(result),
 		})
 	}
 }

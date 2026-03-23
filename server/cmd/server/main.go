@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +24,7 @@ import (
 	"infringement-agent-server/internal/config"
 	"infringement-agent-server/internal/evidence"
 	"infringement-agent-server/internal/mcp"
+	"infringement-agent-server/internal/models"
 	"infringement-agent-server/internal/prompt"
 	"infringement-agent-server/internal/providers"
 	"infringement-agent-server/internal/tools"
@@ -84,6 +87,12 @@ func main() {
 		log.Printf("⚠️  截图目录创建失败: %v", err)
 	}
 
+	// 初始化上传文件存储目录
+	uploadDir := "./data/uploads"
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		log.Printf("⚠️  上传目录创建失败: %v", err)
+	}
+
 	// 初始化证据存储
 	evidenceStore = evidence.NewStore("")
 	if err := evidenceStore.Init(); err != nil {
@@ -127,6 +136,10 @@ func main() {
 
 		// 截图静态文件服务
 		api.GET("/screenshots/:filename", handleScreenshot)
+
+		// 文件上传
+		api.POST("/upload", handleUpload)
+		api.GET("/uploads/:filename", handleUploadedFile)
 	}
 
 	// 优雅关闭
@@ -343,8 +356,9 @@ func handleCreateSession(c *gin.Context) {
 
 func handleChat(c *gin.Context) {
 	var req struct {
-		SessionID string `json:"sessionId"`
-		Message   string `json:"message"`
+		SessionID   string              `json:"sessionId"`
+		Message     string              `json:"message"`
+		Attachments []models.Attachment `json:"attachments,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"success": false, "error": "invalid request"})
@@ -364,7 +378,7 @@ func handleChat(c *gin.Context) {
 		"type": "status", "status": "thinking",
 	})
 
-	response, err := session.Agent.Chat(req.Message)
+	response, err := session.Agent.ChatWithAttachments(req.Message, req.Attachments)
 	if err != nil {
 		pushToClient(req.SessionID, map[string]interface{}{
 			"type": "status", "status": "error",
@@ -465,4 +479,109 @@ func handleScreenshot(c *gin.Context) {
 
 func init() {
 	// placeholder
+}
+
+// ==================== 文件上传 ====================
+
+// 支持的图片 MIME 类型
+var allowedImageTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/gif":  true,
+	"image/webp": true,
+	"image/bmp":  true,
+}
+
+// 支持的文档 MIME 类型
+var allowedDocTypes = map[string]bool{
+	"text/plain":                             true,
+	"text/markdown":                          true,
+	"text/csv":                               true,
+	"application/pdf":                        true,
+	"application/msword":                     true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
+}
+
+const maxUploadSize = 20 * 1024 * 1024 // 20MB
+
+func handleUpload(c *gin.Context) {
+	// 限制请求体大小
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(400, gin.H{"success": false, "error": "文件读取失败: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	// 检查文件大小
+	if header.Size > maxUploadSize {
+		c.JSON(400, gin.H{"success": false, "error": "文件大小超过 20MB 限制"})
+		return
+	}
+
+	// 检查 MIME 类型
+	mimeType := header.Header.Get("Content-Type")
+	isImage := allowedImageTypes[mimeType]
+	isDoc := allowedDocTypes[mimeType]
+
+	if !isImage && !isDoc {
+		c.JSON(400, gin.H{"success": false, "error": "不支持的文件类型: " + mimeType})
+		return
+	}
+
+	// 读取文件内容
+	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "文件读取失败"})
+		return
+	}
+
+	// 生成唯一文件名
+	ext := filepath.Ext(header.Filename)
+	fileID := fmt.Sprintf("%d_%s", time.Now().UnixMilli(), uuid.New().String()[:8])
+	safeFilename := fileID + ext
+
+	// 保存到磁盘
+	savePath := filepath.Join("./data/uploads", safeFilename)
+	if err := os.WriteFile(savePath, fileBytes, 0644); err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "文件保存失败"})
+		return
+	}
+
+	// 构建响应
+	attachment := models.Attachment{
+		ID:       fileID,
+		Filename: header.Filename,
+		MimeType: mimeType,
+		Size:     header.Size,
+		URL:      "/api/uploads/" + safeFilename,
+	}
+
+	// 对图片生成 base64 Data URI（发给 LLM 的多模态能力用）
+	if isImage {
+		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(fileBytes))
+		attachment.DataURI = dataURI
+	}
+
+	c.JSON(200, gin.H{
+		"success":    true,
+		"attachment": attachment,
+	})
+}
+
+func handleUploadedFile(c *gin.Context) {
+	filename := c.Param("filename")
+	// 安全检查
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		c.JSON(400, gin.H{"error": "无效的文件名"})
+		return
+	}
+	filePath := filepath.Join("./data/uploads", filename)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		c.JSON(404, gin.H{"error": "文件不存在"})
+		return
+	}
+	c.File(filePath)
 }

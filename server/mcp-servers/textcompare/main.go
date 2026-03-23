@@ -1,88 +1,17 @@
 package main
 
 import (
-	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"strings"
-	"sync"
 	"unicode"
 
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/yanyiwu/gojieba"
 )
-
-// ==================== JSON-RPC 2.0 Types ====================
-
-type JSONRPCRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type JSONRPCResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id,omitempty"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
-}
-
-type RPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
-}
-
-// ==================== MCP Types ====================
-
-type InitializeResult struct {
-	ProtocolVersion string                 `json:"protocolVersion"`
-	Capabilities    map[string]interface{} `json:"capabilities"`
-	ServerInfo      ServerInfo             `json:"serverInfo"`
-}
-
-type ServerInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-type Tool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema InputSchema `json:"inputSchema"`
-}
-
-type InputSchema struct {
-	Type       string              `json:"type"`
-	Properties map[string]Property `json:"properties"`
-	Required   []string            `json:"required,omitempty"`
-}
-
-type Property struct {
-	Type        string `json:"type"`
-	Description string `json:"description"`
-}
-
-type ToolsListResult struct {
-	Tools []Tool `json:"tools"`
-}
-
-type ToolCallParams struct {
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments"`
-}
-
-type ToolResult struct {
-	Content []ContentItem `json:"content"`
-	IsError bool          `json:"isError,omitempty"`
-}
-
-type ContentItem struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
 
 // ==================== Text Compare Result ====================
 
@@ -385,191 +314,55 @@ func max(a, b int) int {
 	return b
 }
 
-func parseID(raw json.RawMessage) interface{} {
-	if len(raw) == 0 {
-		return nil
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	var n float64
-	if err := json.Unmarshal(raw, &n); err == nil {
-		return n
-	}
-	return nil
-}
-
 // ==================== MCP Server ====================
 
-type MCPServer struct {
-	_tools  []Tool
-	engine  *TextCompareEngine
-}
-
-func NewMCPServer() *MCPServer {
-	return &MCPServer{
-		engine: NewTextCompareEngine(),
-		_tools: []Tool{
-			{
-				Name:        "compare_texts",
-				Description: "比较两段文本的相似度。使用中文分词后计算余弦相似度、Jaccard系数和最长公共子序列(LCS)比率三个维度的相似度，并给出综合评分和侵权判定建议。适用于判断文本是否存在抄袭或侵权。",
-				InputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]Property{
-						"text1": {
-							Type:        "string",
-							Description: "第一段文本（通常为原创/原始内容）",
-						},
-						"text2": {
-							Type:        "string",
-							Description: "第二段文本（通常为疑似侵权内容）",
-						},
-					},
-					Required: []string{"text1", "text2"},
-				},
-			},
-		},
-	}
-}
-
-func (s *MCPServer) HandleRequest(req JSONRPCRequest) JSONRPCResponse {
-	switch req.Method {
-	case "initialize":
-		return s.handleInitialize(req)
-	case "tools/list":
-		return s.handleToolsList(req)
-	case "tools/call":
-		return s.handleToolsCall(req)
-	case "notifications/initialized":
-		return JSONRPCResponse{}
-	default:
-		return JSONRPCResponse{
-			ID: parseID(req.ID),
-			Error: &RPCError{
-				Code:    -32601,
-				Message: fmt.Sprintf("Method not found: %s", req.Method),
-			},
-		}
-	}
-}
-
-func (s *MCPServer) handleInitialize(req JSONRPCRequest) JSONRPCResponse {
-	return JSONRPCResponse{
-		ID: parseID(req.ID),
-		Result: InitializeResult{
-			ProtocolVersion: "2024-11-05",
-			Capabilities: map[string]interface{}{
-				"tools": map[string]interface{}{},
-			},
-			ServerInfo: ServerInfo{
-				Name:    "textcompare-mcp-server",
-				Version: "1.0.0",
-			},
-		},
-	}
-}
-
-func (s *MCPServer) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
-	return JSONRPCResponse{
-		ID: parseID(req.ID),
-		Result: ToolsListResult{
-			Tools: s._tools,
-		},
-	}
-}
-
-func (s *MCPServer) handleToolsCall(req JSONRPCRequest) JSONRPCResponse {
-	var params ToolCallParams
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return JSONRPCResponse{
-			ID: parseID(req.ID),
-			Error: &RPCError{
-				Code:    -32602,
-				Message: "Invalid params",
-			},
-		}
-	}
-
-	switch params.Name {
-	case "compare_texts":
-		return s.handleCompareTexts(req.ID, params)
-	default:
-		return JSONRPCResponse{
-			ID: parseID(req.ID),
-			Error: &RPCError{
-				Code:    -32602,
-				Message: fmt.Sprintf("Unknown tool: %s", params.Name),
-			},
-		}
-	}
-}
-
-func (s *MCPServer) handleCompareTexts(id json.RawMessage, params ToolCallParams) JSONRPCResponse {
-	text1, _ := params.Arguments["text1"].(string)
-	text2, _ := params.Arguments["text2"].(string)
-
-	if text1 == "" || text2 == "" {
-		return JSONRPCResponse{
-			ID: parseID(id),
-			Result: ToolResult{
-				Content: []ContentItem{{Type: "text", Text: "错误: text1 和 text2 都不能为空"}},
-				IsError: true,
-			},
-		}
-	}
-
-	result := s.engine.Compare(text1, text2)
-	resultJSON, _ := json.Marshal(result)
-
-	return JSONRPCResponse{
-		ID: parseID(id),
-		Result: ToolResult{
-			Content: []ContentItem{{Type: "text", Text: string(resultJSON)}},
-		},
-	}
-}
-
-// ==================== Main ====================
-
 func main() {
-	server := NewMCPServer()
-	defer server.engine.Close()
+	engine := NewTextCompareEngine()
+	defer engine.Close()
 
-	scanner := bufio.NewScanner(os.Stdin)
-	// 增大缓冲区处理大文本
-	scanner.Buffer(make([]byte, 4*1024*1024), 4*1024*1024)
-	encoder := json.NewEncoder(os.Stdout)
+	// 创建 MCP 服务器
+	s := server.NewMCPServer(
+		"textcompare-mcp-server",
+		"1.0.0",
+		server.WithToolCapabilities(false),
+	)
 
-	var mu sync.Mutex
+	// 定义文本比较工具
+	compareTool := mcp.NewTool("compare_texts",
+		mcp.WithDescription("比较两段文本的相似度。使用中文分词后计算余弦相似度、Jaccard系数和最长公共子序列(LCS)比率三个维度的相似度，并给出综合评分和侵权判定建议。适用于判断文本是否存在抄袭或侵权。"),
+		mcp.WithString("text1",
+			mcp.Required(),
+			mcp.Description("第一段文本（通常为原创/原始内容）"),
+		),
+		mcp.WithString("text2",
+			mcp.Required(),
+			mcp.Description("第二段文本（通常为疑似侵权内容）"),
+		),
+	)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+	// 注册工具处理函数
+	s.AddTool(compareTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		text1, err := request.RequireString("text1")
+		if err != nil {
+			return mcp.NewToolResultError("错误: text1 不能为空"), nil
+		}
+		text2, err := request.RequireString("text2")
+		if err != nil {
+			return mcp.NewToolResultError("错误: text2 不能为空"), nil
 		}
 
-		var req JSONRPCRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			mu.Lock()
-			encoder.Encode(JSONRPCResponse{
-				Error: &RPCError{
-					Code:    -32700,
-					Message: "Parse error",
-				},
-			})
-			mu.Unlock()
-			continue
+		if text1 == "" || text2 == "" {
+			return mcp.NewToolResultError("错误: text1 和 text2 都不能为空"), nil
 		}
 
-		resp := server.HandleRequest(req)
+		result := engine.Compare(text1, text2)
+		resultJSON, _ := json.Marshal(result)
 
-		if strings.HasPrefix(req.Method, "notifications/") {
-			continue
-		}
+		return mcp.NewToolResultText(string(resultJSON)), nil
+	})
 
-		mu.Lock()
-		encoder.Encode(resp)
-		mu.Unlock()
+	// 启动 stdio 服务器
+	if err := server.ServeStdio(s); err != nil {
+		fmt.Printf("Server error: %v\n", err)
 	}
 }

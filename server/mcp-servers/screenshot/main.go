@@ -1,93 +1,22 @@
 package main
 
 import (
-	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
-
-// ==================== JSON-RPC 2.0 Types ====================
-
-type JSONRPCRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type JSONRPCResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id,omitempty"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
-}
-
-type RPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
-}
-
-// ==================== MCP Types ====================
-
-type InitializeResult struct {
-	ProtocolVersion string                 `json:"protocolVersion"`
-	Capabilities    map[string]interface{} `json:"capabilities"`
-	ServerInfo      ServerInfo             `json:"serverInfo"`
-}
-
-type ServerInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-type Tool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema InputSchema `json:"inputSchema"`
-}
-
-type InputSchema struct {
-	Type       string              `json:"type"`
-	Properties map[string]Property `json:"properties"`
-	Required   []string            `json:"required,omitempty"`
-}
-
-type Property struct {
-	Type        string `json:"type"`
-	Description string `json:"description"`
-	Default     interface{} `json:"default,omitempty"`
-}
-
-type ToolsListResult struct {
-	Tools []Tool `json:"tools"`
-}
-
-type ToolCallParams struct {
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments"`
-}
-
-type ToolResult struct {
-	Content []ContentItem `json:"content"`
-	IsError bool          `json:"isError,omitempty"`
-}
-
-type ContentItem struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
 
 // ==================== Screenshot Result Types ====================
 
@@ -332,198 +261,6 @@ func randomHex(n int) string {
 
 // ==================== MCP Server ====================
 
-type MCPServer struct {
-	_tools  []Tool
-	browser *BrowserManager
-}
-
-func NewMCPServer(screenshotDir string) *MCPServer {
-	return &MCPServer{
-		browser: NewBrowserManager(screenshotDir),
-		_tools: []Tool{
-			{
-				Name:        "take_screenshot",
-				Description: "对指定URL的网页进行截图取证。使用无头浏览器渲染页面后截图，保存为PNG文件。返回截图的访问URL、页面标题、时间戳等元数据。适用于网络侵权证据采集场景。",
-				InputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]Property{
-						"url": {
-							Type:        "string",
-							Description: "要截图的目标网页URL，如 'https://example.com/article'",
-						},
-						"fullPage": {
-							Type:        "boolean",
-							Description: "是否进行全页面截图（包含滚动区域）。默认 false 只截取视口区域",
-							Default:     false,
-						},
-					},
-					Required: []string{"url"},
-				},
-			},
-			{
-				Name:        "fetch_page",
-				Description: "增强版网页内容抓取。使用无头浏览器渲染页面后提取内容，支持JavaScript动态渲染的页面。返回页面标题、正文内容、作者、发布日期等结构化信息。比普通HTTP请求更强大，能抓取SPA等动态页面。",
-				InputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]Property{
-						"url": {
-							Type:        "string",
-							Description: "要抓取内容的目标网页URL",
-						},
-					},
-					Required: []string{"url"},
-				},
-			},
-		},
-	}
-}
-
-func (s *MCPServer) HandleRequest(req JSONRPCRequest) JSONRPCResponse {
-	switch req.Method {
-	case "initialize":
-		return s.handleInitialize(req)
-	case "tools/list":
-		return s.handleToolsList(req)
-	case "tools/call":
-		return s.handleToolsCall(req)
-	case "notifications/initialized":
-		return JSONRPCResponse{}
-	default:
-		return JSONRPCResponse{
-			ID: parseID(req.ID),
-			Error: &RPCError{
-				Code:    -32601,
-				Message: fmt.Sprintf("Method not found: %s", req.Method),
-			},
-		}
-	}
-}
-
-func (s *MCPServer) handleInitialize(req JSONRPCRequest) JSONRPCResponse {
-	return JSONRPCResponse{
-		ID: parseID(req.ID),
-		Result: InitializeResult{
-			ProtocolVersion: "2024-11-05",
-			Capabilities: map[string]interface{}{
-				"tools": map[string]interface{}{},
-			},
-			ServerInfo: ServerInfo{
-				Name:    "screenshot-mcp-server",
-				Version: "1.0.0",
-			},
-		},
-	}
-}
-
-func (s *MCPServer) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
-	return JSONRPCResponse{
-		ID: parseID(req.ID),
-		Result: ToolsListResult{
-			Tools: s._tools,
-		},
-	}
-}
-
-func (s *MCPServer) handleToolsCall(req JSONRPCRequest) JSONRPCResponse {
-	var params ToolCallParams
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return JSONRPCResponse{
-			ID: parseID(req.ID),
-			Error: &RPCError{
-				Code:    -32602,
-				Message: "Invalid params",
-			},
-		}
-	}
-
-	switch params.Name {
-	case "take_screenshot":
-		return s.handleTakeScreenshot(req.ID, params)
-	case "fetch_page":
-		return s.handleFetchPage(req.ID, params)
-	default:
-		return JSONRPCResponse{
-			ID: parseID(req.ID),
-			Error: &RPCError{
-				Code:    -32602,
-				Message: fmt.Sprintf("Unknown tool: %s", params.Name),
-			},
-		}
-	}
-}
-
-func (s *MCPServer) handleTakeScreenshot(id json.RawMessage, params ToolCallParams) JSONRPCResponse {
-	url, _ := params.Arguments["url"].(string)
-	if url == "" {
-		return errorResult(id, "错误: 缺少 url 参数")
-	}
-
-	fullPage := false
-	if fp, ok := params.Arguments["fullPage"].(bool); ok {
-		fullPage = fp
-	}
-
-	result, err := s.browser.TakeScreenshot(url, fullPage)
-	if err != nil {
-		return errorResult(id, fmt.Sprintf("截图失败: %v", err))
-	}
-
-	resultJSON, _ := json.Marshal(result)
-	return JSONRPCResponse{
-		ID: parseID(id),
-		Result: ToolResult{
-			Content: []ContentItem{{Type: "text", Text: string(resultJSON)}},
-		},
-	}
-}
-
-func (s *MCPServer) handleFetchPage(id json.RawMessage, params ToolCallParams) JSONRPCResponse {
-	url, _ := params.Arguments["url"].(string)
-	if url == "" {
-		return errorResult(id, "错误: 缺少 url 参数")
-	}
-
-	result, err := s.browser.FetchPage(url)
-	if err != nil {
-		return errorResult(id, fmt.Sprintf("页面抓取失败: %v", err))
-	}
-
-	resultJSON, _ := json.Marshal(result)
-	return JSONRPCResponse{
-		ID: parseID(id),
-		Result: ToolResult{
-			Content: []ContentItem{{Type: "text", Text: string(resultJSON)}},
-		},
-	}
-}
-
-func errorResult(id json.RawMessage, msg string) JSONRPCResponse {
-	return JSONRPCResponse{
-		ID: parseID(id),
-		Result: ToolResult{
-			Content: []ContentItem{{Type: "text", Text: msg}},
-			IsError: true,
-		},
-	}
-}
-
-func parseID(raw json.RawMessage) interface{} {
-	if len(raw) == 0 {
-		return nil
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	var n float64
-	if err := json.Unmarshal(raw, &n); err == nil {
-		return n
-	}
-	return nil
-}
-
-// ==================== Main ====================
-
 func main() {
 	// 从环境变量获取截图存储目录
 	screenshotDir := os.Getenv("SCREENSHOT_DIR")
@@ -534,44 +271,76 @@ func main() {
 	// 确保截图目录存在
 	os.MkdirAll(screenshotDir, 0755)
 
-	server := NewMCPServer(screenshotDir)
-	defer server.browser.Close()
+	browserMgr := NewBrowserManager(screenshotDir)
+	defer browserMgr.Close()
 
-	scanner := bufio.NewScanner(os.Stdin)
-	// 增大缓冲区以处理大的 JSON 消息
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	encoder := json.NewEncoder(os.Stdout)
+	// 创建 MCP 服务器
+	s := server.NewMCPServer(
+		"screenshot-mcp-server",
+		"1.0.0",
+		server.WithToolCapabilities(false),
+	)
 
-	var mu sync.Mutex
+	// 定义截图工具
+	screenshotTool := mcp.NewTool("take_screenshot",
+		mcp.WithDescription("对指定URL的网页进行截图取证。使用无头浏览器渲染页面后截图，保存为PNG文件。返回截图的访问URL、页面标题、时间戳等元数据。适用于网络侵权证据采集场景。"),
+		mcp.WithString("url",
+			mcp.Required(),
+			mcp.Description("要截图的目标网页URL，如 'https://example.com/article'"),
+		),
+		mcp.WithBoolean("fullPage",
+			mcp.Description("是否进行全页面截图（包含滚动区域）。默认 false 只截取视口区域"),
+		),
+	)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+	// 定义页面抓取工具
+	fetchTool := mcp.NewTool("fetch_page",
+		mcp.WithDescription("增强版网页内容抓取。使用无头浏览器渲染页面后提取内容，支持JavaScript动态渲染的页面。返回页面标题、正文内容、作者、发布日期等结构化信息。比普通HTTP请求更强大，能抓取SPA等动态页面。"),
+		mcp.WithString("url",
+			mcp.Required(),
+			mcp.Description("要抓取内容的目标网页URL"),
+		),
+	)
+
+	// 注册截图工具处理函数
+	s.AddTool(screenshotTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		url, err := request.RequireString("url")
+		if err != nil {
+			return mcp.NewToolResultError("错误: 缺少 url 参数"), nil
 		}
 
-		var req JSONRPCRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			mu.Lock()
-			encoder.Encode(JSONRPCResponse{
-				Error: &RPCError{
-					Code:    -32700,
-					Message: "Parse error",
-				},
-			})
-			mu.Unlock()
-			continue
+		fullPage := false
+		if fp, ok := request.GetArguments()["fullPage"].(bool); ok {
+			fullPage = fp
 		}
 
-		resp := server.HandleRequest(req)
-
-		// 通知类型不需要响应
-		if strings.HasPrefix(req.Method, "notifications/") {
-			continue
+		result, err := browserMgr.TakeScreenshot(url, fullPage)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("截图失败: %v", err)), nil
 		}
 
-		mu.Lock()
-		encoder.Encode(resp)
-		mu.Unlock()
+		resultJSON, _ := json.Marshal(result)
+		return mcp.NewToolResultText(string(resultJSON)), nil
+	})
+
+	// 注册页面抓取工具处理函数
+	s.AddTool(fetchTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		url, err := request.RequireString("url")
+		if err != nil {
+			return mcp.NewToolResultError("错误: 缺少 url 参数"), nil
+		}
+
+		result, err := browserMgr.FetchPage(url)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("页面抓取失败: %v", err)), nil
+		}
+
+		resultJSON, _ := json.Marshal(result)
+		return mcp.NewToolResultText(string(resultJSON)), nil
+	})
+
+	// 启动 stdio 服务器
+	if err := server.ServeStdio(s); err != nil {
+		fmt.Printf("Server error: %v\n", err)
 	}
 }

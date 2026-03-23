@@ -1,5 +1,7 @@
 /** 后端 API 服务 */
 
+import type { Attachment } from '../types'
+
 const API_BASE = '/api'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -25,11 +27,42 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ promptTemplate, provider }) },
     ),
 
-  sendMessage: (sessionId: string, message: string) =>
+  sendMessage: (sessionId: string, message: string, attachments?: Attachment[]) =>
     request<{ success: boolean; response: string; toolCalls: any[] }>(
       '/chat',
-      { method: 'POST', body: JSON.stringify({ sessionId, message }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId,
+          message,
+          attachments: attachments?.map(a => ({
+            id: a.id,
+            filename: a.filename,
+            mimeType: a.mimeType,
+            size: a.size,
+            url: a.url,
+            dataURI: a.dataURI,
+          })),
+        }),
+      },
     ),
+
+  /** 上传文件 */
+  uploadFile: async (file: File): Promise<{ success: boolean; attachment: Attachment }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const res = await fetch(`${API_BASE}/upload`, {
+      method: 'POST',
+      body: formData,
+      // 注意：不要设置 Content-Type，浏览器会自动设置 multipart boundary
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || res.statusText)
+    }
+    return res.json()
+  },
 
   resetSession: (sessionId: string) =>
     request<{ success: boolean }>('/reset', {

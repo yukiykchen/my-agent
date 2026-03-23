@@ -43,13 +43,58 @@ export default function MessageBubble({ message }: Props) {
     }
   }
 
+  const imageAttachments = message.attachments?.filter(a => a.mimeType?.startsWith('image/')) || []
+  const docAttachments = message.attachments?.filter(a => !a.mimeType?.startsWith('image/')) || []
+
   return (
     <>
       <div className={`message ${message.role}`} onClick={handleClick}>
-        <div
-          className="message-content"
-          dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-        />
+        {/* 附件展示区域 */}
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="msg-attachments">
+            {/* 图片网格 */}
+            {imageAttachments.length > 0 && (
+              <div className="msg-image-grid">
+                {imageAttachments.map((att) => (
+                  <div key={att.id} className="msg-image-item">
+                    <img
+                      src={att.previewUrl || att.url}
+                      alt={att.filename}
+                      className="msg-image-thumb"
+                      data-clickable="true"
+                      onClick={() => setLightboxUrl(att.previewUrl || att.url)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* 文档列表 */}
+            {docAttachments.length > 0 && (
+              <div className="msg-doc-list">
+                {docAttachments.map((att) => (
+                  <a
+                    key={att.id}
+                    className="msg-doc-item"
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <span className="doc-icon">📄</span>
+                    <span className="doc-name">{att.filename}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 文本内容 */}
+        {message.content && (
+          <div
+            className="message-content"
+            dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
+          />
+        )}
       </div>
 
       {lightboxUrl && (
