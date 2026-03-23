@@ -5,6 +5,7 @@ import type { ChatMessage, ToolCallLog } from '../types'
 import ToolCallBlock from './ToolCallBlock'
 import MessageBubble from './MessageBubble'
 import ThinkingIndicator from './ThinkingIndicator'
+import RobotIcon from './RobotIcon'
 
 interface Props {
   session: {
@@ -119,19 +120,10 @@ export default function ChatPanel({ session, onBack }: Props) {
         {messages.length === 0 && (
           <div className="welcome">
             <div className="welcome-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="url(#gradient)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <defs>
-                  <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#8b5cf6" />
-                    <stop offset="100%" stopColor="#ec4899" />
-                  </linearGradient>
-                </defs>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/>
-                <path d="M12 8v4"/><path d="M12 16h.01"/>
-              </svg>
+              <RobotIcon />
             </div>
             <h2>智能侵权证据分析系统</h2>
-            <p>基于大模型和 MCP 架构的自动化取证专家</p>
+            <p>基于大模型和 MCP 架构的自动化取证agent</p>
             <div className="welcome-examples">
               <div className="example" onClick={() => setInput('请帮我分析 https://example.com/article 是否侵犯了我的原创文章')}>
                 "请帮我分析某网页是否侵犯了我的原创文章"

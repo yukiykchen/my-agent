@@ -43,15 +43,52 @@ export default function App() {
       .catch((err) => setError(err.message))
   }
 
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`)
+      document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [])
+
+  // 生成随机粒子
+  const particles = Array.from({ length: 20 }).map((_, i) => ({
+    id: i,
+    top: `${Math.random() * 100}%`,
+    left: `${Math.random() * 100}%`,
+    delay: `${Math.random() * 5}s`,
+    duration: `${10 + Math.random() * 20}s`
+  }))
+
+  const BackgroundEffects = () => (
+    <>
+      <div className="bg-grid"></div>
+      <div className="cursor-glow"></div>
+      <div className="bg-blob blob-1"></div>
+      <div className="bg-blob blob-2"></div>
+      <div className="bg-blob blob-3"></div>
+      <div className="particles">
+        {particles.map((p) => (
+          <div
+            key={p.id}
+            className="particle"
+            style={{
+              top: p.top,
+              left: p.left,
+              animationDelay: p.delay,
+              animationDuration: p.duration
+            }}
+          />
+        ))}
+      </div>
+    </>
+  )
+
   if (error) {
     return (
       <div className="app">
-        {/* 高级动态背景元素 */}
-        <div className="bg-grid"></div>
-        <div className="bg-blob blob-1"></div>
-        <div className="bg-blob blob-2"></div>
-        <div className="bg-blob blob-3"></div>
-        
+        <BackgroundEffects />
         <div className="setup-panel">
           <div className="setup-content">
             <p className="error-text">连接失败: {error}</p>
@@ -65,11 +102,7 @@ export default function App() {
   if (!session) {
     return (
       <div className="app">
-        <div className="bg-grid"></div>
-        <div className="bg-blob blob-1"></div>
-        <div className="bg-blob blob-2"></div>
-        <div className="bg-blob blob-3"></div>
-
+        <BackgroundEffects />
         <div className="setup-panel">
           <div className="setup-content loading-card">
             <div className="spinner"></div>
@@ -82,11 +115,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="bg-grid"></div>
-      <div className="bg-blob blob-1"></div>
-      <div className="bg-blob blob-2"></div>
-      <div className="bg-blob blob-3"></div>
-      
+      <BackgroundEffects />
       <ChatPanel session={session} onBack={handleReset} />
     </div>
   )
