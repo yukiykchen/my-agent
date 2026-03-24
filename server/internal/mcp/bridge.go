@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -9,6 +11,26 @@ import (
 	"infringement-agent-server/internal/models"
 	"infringement-agent-server/internal/tools"
 )
+
+// sanitizeToolName 清理工具名称，确保符合 LLM API 的命名规则
+// 规则：以字母开头，只能包含字母、数字、下划线和短横线
+var invalidNameChars = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+
+func sanitizeToolName(name string) string {
+	// 将点号等非法字符替换为下划线
+	sanitized := invalidNameChars.ReplaceAllString(name, "_")
+	// 合并连续下划线
+	for strings.Contains(sanitized, "__") {
+		sanitized = strings.ReplaceAll(sanitized, "__", "_")
+	}
+	// 去掉首尾下划线
+	sanitized = strings.Trim(sanitized, "_")
+	// 确保以字母开头
+	if len(sanitized) > 0 && !((sanitized[0] >= 'a' && sanitized[0] <= 'z') || (sanitized[0] >= 'A' && sanitized[0] <= 'Z')) {
+		sanitized = "t_" + sanitized
+	}
+	return sanitized
+}
 
 // Bridge MCP 工具桥接器
 type Bridge struct {
@@ -36,7 +58,7 @@ func (b *Bridge) RegisterAll() (int, error) {
 	count := 0
 
 	for _, info := range toolInfos {
-		toolName := fmt.Sprintf("mcp_%s_%s", info.Server, info.Name)
+		toolName := sanitizeToolName(fmt.Sprintf("mcp_%s_%s", info.Server, info.Name))
 		serverName := info.Server
 
 		// 转换 InputSchema 到 FunctionParams

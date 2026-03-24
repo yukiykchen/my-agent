@@ -22,7 +22,7 @@ type ProviderConfig struct {
 
 // DefaultModels 各供应商默认模型
 var DefaultModels = map[ProviderType]string{
-	Moonshot: "moonshot-v1-8k",
+	Moonshot: "kimi-k2.5",
 	DeepSeek: "deepseek-chat",
 	Zhipu:    "glm-4",
 	Gemini:   "gemini-1.5-flash",

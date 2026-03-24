@@ -47,11 +47,12 @@ type chatRequest struct {
 // chatMessageForAPI 发给 API 的消息格式
 // Content 需要支持 string 和 array 两种序列化
 type chatMessageForAPI struct {
-	Role       models.MessageRole `json:"role"`
-	Content    json.RawMessage    `json:"content"`
-	Name       string             `json:"name,omitempty"`
-	ToolCalls  []models.ToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string             `json:"tool_call_id,omitempty"`
+	Role             models.MessageRole `json:"role"`
+	Content          json.RawMessage    `json:"content"`
+	ReasoningContent *string            `json:"reasoning_content,omitempty"` // Kimi K2.5 thinking 推理内容
+	Name             string             `json:"name,omitempty"`
+	ToolCalls        []models.ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID       string             `json:"tool_call_id,omitempty"`
 }
 
 // convertMessagesToAPI 将内部 Message 转为 API 请求格式
@@ -63,6 +64,12 @@ func convertMessagesToAPI(messages []models.Message) []chatMessageForAPI {
 			Name:       msg.Name,
 			ToolCalls:  msg.ToolCalls,
 			ToolCallID: msg.ToolCallID,
+		}
+
+		// 传递 reasoning_content（Kimi K2.5 thinking 模式）
+		if msg.ReasoningContent != "" {
+			rc := msg.ReasoningContent
+			apiMsg.ReasoningContent = &rc
 		}
 
 		// 序列化 Content（string 或 array）
@@ -81,8 +88,9 @@ type chatResponseChoice struct {
 }
 
 type choiceMessage struct {
-	Content   *string           `json:"content"`
-	ToolCalls []models.ToolCall `json:"tool_calls,omitempty"`
+	Content          *string           `json:"content"`
+	ReasoningContent *string           `json:"reasoning_content,omitempty"` // Kimi K2.5 thinking 推理内容
+	ToolCalls        []models.ToolCall `json:"tool_calls,omitempty"`
 }
 
 type chatResponse struct {
@@ -158,6 +166,10 @@ func (p *OpenAICompatibleProvider) Chat(messages []models.Message, tools []model
 	if choice.Message.Content != nil {
 		content = *choice.Message.Content
 	}
+	reasoningContent := ""
+	if choice.Message.ReasoningContent != nil {
+		reasoningContent = *choice.Message.ReasoningContent
+	}
 
 	finishReason := "stop"
 	if choice.FinishReason == "tool_calls" {
@@ -165,9 +177,10 @@ func (p *OpenAICompatibleProvider) Chat(messages []models.Message, tools []model
 	}
 
 	return &models.ModelResponse{
-		Content:      content,
-		ToolCalls:    choice.Message.ToolCalls,
-		FinishReason: finishReason,
-		Usage:        result.Usage,
+		Content:          content,
+		ReasoningContent: reasoningContent,
+		ToolCalls:        choice.Message.ToolCalls,
+		FinishReason:     finishReason,
+		Usage:            result.Usage,
 	}, nil
 }

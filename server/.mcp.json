@@ -22,6 +22,27 @@
     "webcompare": {
       "command": "./mcp-servers/webcompare/webcompare-server",
       "args": []
+    },
+    "tencent-docs": {
+      "transport": "http",
+      "baseUrl": "https://docs.qq.com/openapi/mcp",
+      "headers": {
+        "Authorization": "${TENCENT_DOCS_TOKEN}"
+      }
+    },
+    "tencent-docengine": {
+      "transport": "http",
+      "baseUrl": "https://docs.qq.com/api/v6/doc/mcp",
+      "headers": {
+        "Authorization": "${TENCENT_DOCS_TOKEN}"
+      }
+    },
+    "tencent-sheetengine": {
+      "transport": "http",
+      "baseUrl": "https://docs.qq.com/api/v6/sheet/mcp",
+      "headers": {
+        "Authorization": "${TENCENT_DOCS_TOKEN}"
+      }
     }
   }
 }

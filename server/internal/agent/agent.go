@@ -125,8 +125,8 @@ func (a *Agent) ChatWithAttachments(userMessage string, attachments []models.Att
 
 	toolDefs := a.toolRegistry.GetDefinitions()
 	modelCfg := models.ModelConfig{
-		Temperature: 0.7,
-		MaxTokens:   4096,
+		Temperature: 1.0,
+		MaxTokens:   8192,
 	}
 
 	var finalResponse string
@@ -165,11 +165,11 @@ func (a *Agent) ChatWithAttachments(userMessage string, attachments []models.Att
 		}
 
 		if a.config.OnThinking != nil {
-			a.config.OnThinking(fmt.Sprintf("第 %d/%d 轮推理...", a.iterations, a.config.MaxIterations))
+			a.config.OnThinking(fmt.Sprintf("第 %d 轮推理...", a.iterations))
 		}
 
 		if a.config.Verbose {
-			log.Printf("🤔 第 %d/%d 轮推理...", a.iterations, a.config.MaxIterations)
+			log.Printf("🤔 第 %d 轮推理...", a.iterations)
 		}
 
 		resp, err := a.provider.Chat(a.messages, toolDefs, modelCfg)
@@ -181,12 +181,13 @@ func (a *Agent) ChatWithAttachments(userMessage string, attachments []models.Att
 		}
 
 		if len(resp.ToolCalls) > 0 {
-			a.handleToolCalls(resp.ToolCalls, resp.Content)
+			a.handleToolCalls(resp.ToolCalls, resp.Content, resp.ReasoningContent)
 		} else {
 			finalResponse = resp.Content
 			a.messages = append(a.messages, models.Message{
-				Role:    models.RoleAssistant,
-				Content: models.NewTextContent(finalResponse),
+				Role:             models.RoleAssistant,
+				Content:          models.NewTextContent(finalResponse),
+				ReasoningContent: resp.ReasoningContent,
 			})
 			a.isRunning = false
 		}
@@ -234,11 +235,12 @@ func (a *Agent) requestSummary(modelCfg models.ModelConfig) (string, error) {
 }
 
 // handleToolCalls 处理工具调用
-func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, content string) {
+func (a *Agent) handleToolCalls(toolCalls []models.ToolCall, content string, reasoningContent string) {
 	a.messages = append(a.messages, models.Message{
-		Role:      models.RoleAssistant,
-		Content:   models.NewTextContent(content),
-		ToolCalls: toolCalls,
+		Role:             models.RoleAssistant,
+		Content:          models.NewTextContent(content),
+		ReasoningContent: reasoningContent,
+		ToolCalls:        toolCalls,
 	})
 
 	for _, tc := range toolCalls {

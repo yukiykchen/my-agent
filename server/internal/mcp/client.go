@@ -6,20 +6,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	mcpsdk "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // ==================== Types ====================
 
-// ServerConfig MCP 服务器配置
+// ServerConfig MCP 服务器配置（支持 stdio 和 http 两种 transport）
 type ServerConfig struct {
-	Command string            `json:"command"`
+	// stdio transport 字段
+	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+
+	// http transport 字段
+	Transport string            `json:"transport,omitempty"` // "stdio"(默认) 或 "http"
+	BaseURL   string            `json:"baseUrl,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
 }
 
 // Config .mcp.json 配置文件格式
@@ -103,7 +111,27 @@ func (c *Client) GetServerStatus() []map[string]interface{} {
 	return status
 }
 
-// ConnectServer 连接到 MCP 服务器
+// resolveEnvVars 解析字符串中的 ${ENV_VAR} 环境变量引用
+func resolveEnvVars(s string) string {
+	// 替换 ${VAR_NAME} 格式的环境变量
+	for {
+		start := strings.Index(s, "${")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start:], "}")
+		if end == -1 {
+			break
+		}
+		end += start
+		varName := s[start+2 : end]
+		varValue := os.Getenv(varName)
+		s = s[:start] + varValue + s[end+1:]
+	}
+	return s
+}
+
+// ConnectServer 连接到 MCP 服务器（支持 stdio 和 http 两种 transport）
 func (c *Client) ConnectServer(name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -122,36 +150,74 @@ func (c *Client) ConnectServer(name string) error {
 		return nil
 	}
 
-	// 解析命令路径（如果是相对路径，则相对于配置文件目录）
-	cmdPath := cfg.Command
-	if !filepath.IsAbs(cmdPath) {
-		cmdPath = filepath.Join(c.configDir, cmdPath)
-	}
+	var sdkClient *mcpsdk.Client
 
-	// 检查命令是否存在
-	if _, err := os.Stat(cmdPath); os.IsNotExist(err) {
-		return fmt.Errorf("MCP server command not found: %s (resolved from %s)", cmdPath, cfg.Command)
-	}
+	switch cfg.Transport {
+	case "http":
+		// HTTP transport：连接远程 MCP 服务器
+		if cfg.BaseURL == "" {
+			return fmt.Errorf("HTTP MCP server %s missing baseUrl", name)
+		}
 
-	fmt.Printf("  🔧 启动 MCP 服务器: %s\n", cmdPath)
+		baseURL := resolveEnvVars(cfg.BaseURL)
+		fmt.Printf("  🌐 连接远程 MCP 服务器: %s (%s)\n", name, baseURL)
 
-	// 构建环境变量
-	env := os.Environ()
-	for k, v := range cfg.Env {
-		env = append(env, k+"="+v)
-	}
+		// 构建 headers（支持环境变量替换）
+		headers := make(map[string]string)
+		for k, v := range cfg.Headers {
+			headers[k] = resolveEnvVars(v)
+		}
 
-	// 使用 mcp-go SDK 创建 stdio 客户端
-	sdkClient, err := mcpsdk.NewStdioMCPClient(cmdPath, env, cfg.Args...)
-	if err != nil {
-		return fmt.Errorf("create MCP client: %w", err)
+		// 构建 options
+		opts := []transport.StreamableHTTPCOption{}
+		if len(headers) > 0 {
+			opts = append(opts, transport.WithHTTPHeaders(headers))
+		}
+
+		var err error
+		sdkClient, err = mcpsdk.NewStreamableHttpClient(baseURL, opts...)
+		if err != nil {
+			return fmt.Errorf("create HTTP MCP client for %s: %w", name, err)
+		}
+
+		// StreamableHTTP 需要手动 Start
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := sdkClient.Start(ctx); err != nil {
+			sdkClient.Close()
+			return fmt.Errorf("start HTTP MCP client for %s: %w", name, err)
+		}
+
+	default:
+		// stdio transport（默认）：启动本地子进程
+		cmdPath := cfg.Command
+		if !filepath.IsAbs(cmdPath) {
+			cmdPath = filepath.Join(c.configDir, cmdPath)
+		}
+
+		if _, err := os.Stat(cmdPath); os.IsNotExist(err) {
+			return fmt.Errorf("MCP server command not found: %s (resolved from %s)", cmdPath, cfg.Command)
+		}
+
+		fmt.Printf("  🔧 启动 MCP 服务器: %s\n", cmdPath)
+
+		env := os.Environ()
+		for k, v := range cfg.Env {
+			env = append(env, k+"="+v)
+		}
+
+		var err error
+		sdkClient, err = mcpsdk.NewStdioMCPClient(cmdPath, env, cfg.Args...)
+		if err != nil {
+			return fmt.Errorf("create stdio MCP client: %w", err)
+		}
 	}
 
 	// 初始化握手
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err = sdkClient.Initialize(ctx, mcp.InitializeRequest{
+	_, err := sdkClient.Initialize(ctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
 			ClientInfo: mcp.Implementation{
@@ -163,7 +229,7 @@ func (c *Client) ConnectServer(name string) error {
 	})
 	if err != nil {
 		sdkClient.Close()
-		return fmt.Errorf("initialize: %w", err)
+		return fmt.Errorf("initialize %s: %w", name, err)
 	}
 	fmt.Printf("  ✅ MCP 握手成功: %s\n", name)
 
@@ -171,7 +237,7 @@ func (c *Client) ConnectServer(name string) error {
 	toolsResult, err := sdkClient.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		sdkClient.Close()
-		return fmt.Errorf("list tools: %w", err)
+		return fmt.Errorf("list tools %s: %w", name, err)
 	}
 	fmt.Printf("  📋 获取到 %d 个工具: %s\n", len(toolsResult.Tools), name)
 
@@ -239,7 +305,7 @@ func (c *Client) CallTool(serverName, toolName string, args map[string]interface
 		return nil, fmt.Errorf("server %s not connected", serverName)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	result, err := conn.client.CallTool(ctx, mcp.CallToolRequest{

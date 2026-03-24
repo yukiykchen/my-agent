@@ -92,11 +92,12 @@ func NewMultimodalContent(parts []ContentPart) MessageContent {
 
 // Message 消息结构
 type Message struct {
-	Role       MessageRole    `json:"role"`
-	Content    MessageContent `json:"content"`
-	Name       string         `json:"name,omitempty"`
-	ToolCalls  []ToolCall     `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Role             MessageRole    `json:"role"`
+	Content          MessageContent `json:"content"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"` // Kimi K2.5 thinking 模式的推理内容
+	Name             string         `json:"name,omitempty"`
+	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
 }
 
 // ToolCall 工具调用
@@ -141,10 +142,11 @@ type PropertyDefine struct {
 
 // ModelResponse 模型响应
 type ModelResponse struct {
-	Content      string     `json:"content"`
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
-	FinishReason string     `json:"finish_reason"`
-	Usage        *Usage     `json:"usage,omitempty"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // thinking 模式的推理内容
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	FinishReason     string     `json:"finish_reason"`
+	Usage            *Usage     `json:"usage,omitempty"`
 }
 
 // Usage token 用量
