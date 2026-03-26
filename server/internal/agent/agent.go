@@ -95,12 +95,15 @@ func (a *Agent) ChatWithAttachments(userMessage string, attachments []models.Att
 	// 构造用户消息
 	var userContent models.MessageContent
 	if len(attachments) > 0 {
-		// 多模态消息：文本 + 图片
+		// 多模态消息：文本 + 图片 + 文档内容
 		parts := []models.ContentPart{
 			{Type: "text", Text: userMessage},
 		}
+
+		// 处理附件
 		for _, att := range attachments {
 			if att.DataURI != "" {
+				// 图片附件：通过多模态 API 传递
 				parts = append(parts, models.ContentPart{
 					Type: "image_url",
 					ImageURL: &models.ImageURL{
@@ -109,8 +112,44 @@ func (a *Agent) ChatWithAttachments(userMessage string, attachments []models.Att
 					},
 				})
 			}
+			if att.TextContent != "" {
+				// 文档附件：将提取的文本内容作为上下文注入
+				docText := fmt.Sprintf("\n\n📄 【附件文档: %s】\n"+
+					"文件类型: %s | 文件大小: %d 字节\n"+
+					"────────────────────────────\n"+
+					"%s\n"+
+					"────────────────────────────\n"+
+					"（以上为文件 \"%s\" 的文本内容）",
+					att.Filename, att.MimeType, att.Size,
+					att.TextContent,
+					att.Filename)
+				parts = append(parts, models.ContentPart{
+					Type: "text",
+					Text: docText,
+				})
+			}
 		}
-		userContent = models.NewMultimodalContent(parts)
+
+		// 如果只有文本片段（没有图片），合并为纯文本消息（兼容不支持多模态的 API）
+		hasImage := false
+		for _, p := range parts {
+			if p.Type == "image_url" {
+				hasImage = true
+				break
+			}
+		}
+		if hasImage {
+			userContent = models.NewMultimodalContent(parts)
+		} else {
+			// 合并所有文本片段为一个纯文本消息
+			var sb strings.Builder
+			for _, p := range parts {
+				if p.Type == "text" {
+					sb.WriteString(p.Text)
+				}
+			}
+			userContent = models.NewTextContent(sb.String())
+		}
 	} else {
 		userContent = models.NewTextContent(userMessage)
 	}

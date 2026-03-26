@@ -317,11 +317,16 @@ export default function ChatPanel({ session, onBack }: Props) {
                 {att.previewUrl ? (
                   <img src={att.previewUrl} alt={att.filename} className="attachment-thumb" />
                 ) : (
-                  <div className="attachment-icon">📄</div>
+                  <div className="attachment-icon">
+                    {att.mimeType === 'application/pdf' ? '📕' : '📄'}
+                  </div>
                 )}
                 <div className="attachment-info">
                   <span className="attachment-name">{att.filename}</span>
-                  <span className="attachment-size">{formatSize(att.size)}</span>
+                  <span className="attachment-size">
+                    {formatSize(att.size)}
+                    {att.textContent && ' · ✅ 已解析'}
+                  </span>
                 </div>
                 <button
                   className="attachment-remove"

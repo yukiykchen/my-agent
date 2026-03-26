@@ -165,10 +165,11 @@ type ModelConfig struct {
 
 // Attachment 用户上传的附件信息
 type Attachment struct {
-	ID       string `json:"id"`
-	Filename string `json:"filename"`
-	MimeType string `json:"mimeType"`
-	Size     int64  `json:"size"`
-	URL      string `json:"url"`      // 服务端访问路径
-	DataURI  string `json:"dataURI"`  // base64 data URI（图片用，直接传给 LLM）
+	ID          string `json:"id"`
+	Filename    string `json:"filename"`
+	MimeType    string `json:"mimeType"`
+	Size        int64  `json:"size"`
+	URL         string `json:"url"`                   // 服务端访问路径
+	DataURI     string `json:"dataURI,omitempty"`      // base64 data URI（图片用，直接传给 LLM）
+	TextContent string `json:"textContent,omitempty"`  // 文档提取的文本内容（PDF/Word/TXT 等）
 }

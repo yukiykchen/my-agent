@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -19,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
+	gopdf "github.com/ledongthuc/pdf"
 
 	"infringement-agent-server/internal/agent"
 	"infringement-agent-server/internal/config"
@@ -565,6 +568,19 @@ func handleUpload(c *gin.Context) {
 		attachment.DataURI = dataURI
 	}
 
+	// 对文档提取文本内容（发给 LLM 作为上下文）
+	if isDoc {
+		textContent := extractDocumentText(mimeType, fileBytes, savePath)
+		if textContent != "" {
+			// 限制文本长度，避免超出 LLM 上下文窗口
+			const maxTextLen = 50000
+			if len(textContent) > maxTextLen {
+				textContent = textContent[:maxTextLen] + "\n\n...[文本已截断，原文共 " + fmt.Sprintf("%d", len(textContent)) + " 字符]"
+			}
+			attachment.TextContent = textContent
+		}
+	}
+
 	c.JSON(200, gin.H{
 		"success":    true,
 		"attachment": attachment,
@@ -584,4 +600,130 @@ func handleUploadedFile(c *gin.Context) {
 		return
 	}
 	c.File(filePath)
+}
+
+// ==================== 文档文本提取 ====================
+
+// extractDocumentText 根据 MIME 类型提取文档的文本内容
+func extractDocumentText(mimeType string, fileBytes []byte, filePath string) string {
+	switch mimeType {
+	case "application/pdf":
+		return extractPDFText(filePath)
+	case "text/plain", "text/markdown", "text/csv":
+		return string(fileBytes)
+	case "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		// Word 文档简易提取：尝试提取 docx 中的纯文本
+		return extractDocxText(fileBytes)
+	default:
+		return ""
+	}
+}
+
+// extractPDFText 从 PDF 文件中提取文本
+func extractPDFText(filePath string) string {
+	f, r, err := gopdf.Open(filePath)
+	if err != nil {
+		log.Printf("⚠️ PDF 打开失败: %v", err)
+		return ""
+	}
+	defer f.Close()
+
+	var buf bytes.Buffer
+	totalPages := r.NumPage()
+	for i := 1; i <= totalPages; i++ {
+		p := r.Page(i)
+		if p.V.IsNull() {
+			continue
+		}
+		text, err := p.GetPlainText(nil)
+		if err != nil {
+			log.Printf("⚠️ PDF 第 %d 页文本提取失败: %v", i, err)
+			continue
+		}
+		if text != "" {
+			if buf.Len() > 0 {
+				buf.WriteString("\n\n")
+			}
+			buf.WriteString(fmt.Sprintf("--- 第 %d 页 ---\n", i))
+			buf.WriteString(text)
+		}
+	}
+
+	result := buf.String()
+	if result == "" {
+		log.Printf("⚠️ PDF 文本提取结果为空（可能是扫描版/图片 PDF）")
+		return "[此 PDF 为扫描版或图片格式，无法直接提取文本。建议使用 OCR 工具处理。]"
+	}
+
+	log.Printf("✅ PDF 文本提取成功: %d 页, %d 字符", totalPages, len(result))
+	return result
+}
+
+// extractDocxText 从 docx 文件中提取纯文本（简易实现）
+func extractDocxText(fileBytes []byte) string {
+	// docx 本质是 ZIP 文件，其中 word/document.xml 包含文档内容
+	reader := bytes.NewReader(fileBytes)
+	zipReader, err := readZipFromBytes(reader, int64(len(fileBytes)))
+	if err != nil {
+		log.Printf("⚠️ docx 解压失败: %v", err)
+		return ""
+	}
+
+	for _, f := range zipReader.File {
+		if f.Name == "word/document.xml" {
+			rc, err := f.Open()
+			if err != nil {
+				return ""
+			}
+			defer rc.Close()
+			data, err := io.ReadAll(rc)
+			if err != nil {
+				return ""
+			}
+			// 简易提取 XML 中的文本内容（去除 XML 标签）
+			text := stripXMLTags(string(data))
+			log.Printf("✅ docx 文本提取成功: %d 字符", len(text))
+			return text
+		}
+	}
+	return ""
+}
+
+// readZipFromBytes 从字节读取 ZIP 文件
+func readZipFromBytes(reader *bytes.Reader, size int64) (*zip.Reader, error) {
+	return zip.NewReader(reader, size)
+}
+
+// stripXMLTags 简易去除 XML 标签，保留文本
+func stripXMLTags(s string) string {
+	var result strings.Builder
+	inTag := false
+	lastWasSpace := false
+	for _, c := range s {
+		if c == '<' {
+			inTag = true
+			continue
+		}
+		if c == '>' {
+			inTag = false
+			// 在标签结束后添加空格分隔
+			if !lastWasSpace {
+				result.WriteRune(' ')
+				lastWasSpace = true
+			}
+			continue
+		}
+		if !inTag {
+			if c == '\n' || c == '\r' || c == '\t' {
+				if !lastWasSpace {
+					result.WriteRune(' ')
+					lastWasSpace = true
+				}
+			} else {
+				result.WriteRune(c)
+				lastWasSpace = (c == ' ')
+			}
+		}
+	}
+	return strings.TrimSpace(result.String())
 }

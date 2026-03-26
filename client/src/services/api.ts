@@ -42,6 +42,7 @@ export const api = {
             size: a.size,
             url: a.url,
             dataURI: a.dataURI,
+            textContent: a.textContent,
           })),
         }),
       },

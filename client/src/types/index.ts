@@ -30,6 +30,7 @@ export interface Attachment {
   size: number
   url: string        // 服务端访问路径
   dataURI?: string   // base64 data URI（图片）
+  textContent?: string // 文档提取的文本内容（PDF/Word/TXT 等）
   /** 前端预览用的本地 object URL */
   previewUrl?: string
 }
