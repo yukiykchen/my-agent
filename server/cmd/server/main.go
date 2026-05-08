@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -22,14 +23,17 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 	gopdf "github.com/ledongthuc/pdf"
+	extmcp "github.com/mark3labs/mcp-go/mcp"
 
 	"infringement-agent-server/internal/agent"
 	"infringement-agent-server/internal/config"
 	"infringement-agent-server/internal/evidence"
 	"infringement-agent-server/internal/mcp"
 	"infringement-agent-server/internal/models"
+	"infringement-agent-server/internal/notary"
 	"infringement-agent-server/internal/prompt"
 	"infringement-agent-server/internal/providers"
+	"infringement-agent-server/internal/report"
 	"infringement-agent-server/internal/tools"
 )
 
@@ -50,8 +54,11 @@ var (
 	toolRegistry  *tools.Registry
 	promptMgr     *prompt.Manager
 	evidenceStore *evidence.Store
+	notarizeSvc   *evidence.NotarizeService
+	chainAnchor   *evidence.ChainAnchor
 	mcpClient     *mcp.Client
 	mcpBridge     *mcp.Bridge
+	reportGen     *report.Generator
 )
 
 func main() {
@@ -102,6 +109,32 @@ func main() {
 		log.Printf("⚠️  证据存储初始化失败: %v", err)
 	}
 
+	// 初始化证据即时固化服务（TSA + fsnotify + 监督链）
+	notarizeServiceInstance, notarizeErr := evidence.NewNotarizeService(evidenceStore)
+	if notarizeErr != nil {
+		log.Printf("⚠️  固化服务初始化失败: %v", notarizeErr)
+	} else {
+		notarizeSvc = notarizeServiceInstance
+		fmt.Println("  ✅ 证据即时固化服务已启动（Mock TSA + fsnotify + 监督链）")
+
+		// 初始化 Mock 区块链锚定服务
+		anchorInstance, anchorErr := evidence.NewChainAnchor(notarizeSvc)
+		if anchorErr != nil {
+			log.Printf("⚠️  Mock 区块链服务初始化失败: %v", anchorErr)
+		} else {
+			chainAnchor = anchorInstance
+			fmt.Println("  ✅ Mock 蚂蚁链存证服务已启动（Merkle Tree 批量聚合）")
+		}
+
+		// 注册证据链条相关的 Agent 工具
+		tools.RegisterEvidenceTools(toolRegistry, notarizeSvc, chainAnchor)
+
+		// 注册法律规范化报告生成工具
+		reportGen = report.NewGenerator(notarizeSvc, chainAnchor)
+		tools.RegisterReportTool(toolRegistry, reportGen)
+		fmt.Println("  ✅ 证据链条工具集已注册（evidence_list / evidence_verify / evidence_anchor / custody_list / asr_transcribe / ocr_recognize / report_generate）")
+	}
+
 	// Gin 路由
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -136,6 +169,29 @@ func main() {
 		api.GET("/cases", handleListCases)
 		api.GET("/cases/:caseId", handleGetCase)
 		api.GET("/evidence/:caseId/:filename", handleGetEvidence)
+
+		// 证据即时固化（论文 4.2 节核心）
+		api.POST("/notarize/fixate", handleNotarizeFixate)
+		api.GET("/notarize/:caseId", handleListNotarized)
+		api.GET("/notarize/:caseId/:evidenceId", handleGetNotarized)
+		api.POST("/notarize/:caseId/:evidenceId/verify", handleVerifyNotarized)
+
+		// 监督链（Chain of Custody）
+		api.GET("/custody/:caseId", handleListCustody)
+		api.GET("/custody/:caseId/verify", handleVerifyCustody)
+
+		// 区块链锚定（论文 4.3.3 Merkle Tree 批量上链）
+		api.POST("/chain/:caseId/anchor", handleChainAnchor)
+		api.GET("/chain/:caseId/:evidenceId/verify", handleChainVerify)
+		api.GET("/chain/stats", handleChainStats)
+
+		// 网页取证（直接驱动 MCP 工具 + 自动固化，不依赖 Agent 自主决策）
+		api.POST("/evidence/screenshot", handleWebScreenshot)
+		api.POST("/evidence/crawl", handleWebCrawl)
+
+		// 报告管理（论文 4.5 节七段式报告）
+		api.GET("/reports/:caseId", handleListReports)
+		api.GET("/reports/:caseId/:reportId", handleGetReport)
 
 		// 截图静态文件服务
 		api.GET("/screenshots/:filename", handleScreenshot)
@@ -463,6 +519,377 @@ func handleGetEvidence(c *gin.Context) {
 	c.File(filePath)
 }
 
+// ==================== 证据即时固化（论文 4.2）====================
+
+// handleNotarizeFixate 即时固化一份证据
+// multipart/form-data:
+//   file:        文件
+//   caseId:      案件 ID
+//   evidenceId:  （可选）
+//   sourceType:  web / live_segment / short_video / document
+//   clientHash:  （必填）客户端 Web Crypto API 即时哈希
+//   collector:   采集者
+//   meta:        JSON 字符串（可选）
+func handleNotarizeFixate(c *gin.Context) {
+	if notarizeSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "固化服务未初始化"})
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 200*1024*1024) // 200MB
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(400, gin.H{"success": false, "error": "文件读取失败: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "文件读取失败"})
+		return
+	}
+
+	metaStr := c.PostForm("meta")
+	meta := make(map[string]string)
+	if metaStr != "" {
+		_ = jsonUnmarshalTo(metaStr, &meta)
+	}
+	if meta == nil {
+		meta = map[string]string{}
+	}
+	if filename := header.Filename; filename != "" {
+		meta["originalFilename"] = filename
+	}
+
+	req := evidence.FixationRequest{
+		CaseID:     c.PostForm("caseId"),
+		EvidenceID: c.PostForm("evidenceId"),
+		SourceType: c.PostForm("sourceType"),
+		Filename:   header.Filename,
+		ClientHash: c.PostForm("clientHash"),
+		Collector:  c.PostForm("collector"),
+		ClientIP:   c.ClientIP(),
+		Meta:       meta,
+	}
+	if req.SourceType == "" {
+		req.SourceType = "misc"
+	}
+
+	rec, err := notarizeSvc.Fixate(req, fileBytes)
+	if err != nil {
+		c.JSON(400, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "evidence": rec})
+}
+
+func handleListNotarized(c *gin.Context) {
+	caseID := c.Param("caseId")
+	list, err := notarizeSvc.ListNotarized(caseID)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "evidences": list, "count": len(list)})
+}
+
+func handleGetNotarized(c *gin.Context) {
+	caseID := c.Param("caseId")
+	evID := c.Param("evidenceId")
+	rec, err := notarizeSvc.GetNotarized(caseID, evID)
+	if err != nil {
+		c.JSON(404, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "evidence": rec})
+}
+
+func handleVerifyNotarized(c *gin.Context) {
+	caseID := c.Param("caseId")
+	evID := c.Param("evidenceId")
+	rec, result, err := notarizeSvc.VerifyIntegrity(caseID, evID)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{
+		"success":  true,
+		"evidence": rec,
+		"verify":   result,
+	})
+}
+
+func handleListCustody(c *gin.Context) {
+	caseID := c.Param("caseId")
+	events, err := notarizeSvc.ListCustody(caseID)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "events": events, "count": len(events)})
+}
+
+func handleVerifyCustody(c *gin.Context) {
+	caseID := c.Param("caseId")
+	ok, reason, err := notarizeSvc.VerifyCustodyChain(caseID)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "valid": ok, "reason": reason})
+}
+
+// ==================== 网页取证（直接驱动 MCP + 自动固化）====================
+
+// handleWebScreenshot 对指定 URL 截图并自动固化
+// body: { url: string, caseId: string }
+func handleWebScreenshot(c *gin.Context) {
+	if mcpClient == nil || notarizeSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "MCP 客户端或固化服务未初始化"})
+		return
+	}
+	var req struct {
+		URL    string `json:"url" binding:"required"`
+		CaseID string `json:"caseId" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": "参数错误: " + err.Error()})
+		return
+	}
+
+	// 1. 调用 MCP screenshot 工具
+	result, err := mcpClient.CallTool("screenshot", "take_screenshot", map[string]interface{}{
+		"url": req.URL,
+	})
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "截图失败: " + err.Error()})
+		return
+	}
+	if result.IsError || len(result.Content) == 0 {
+		c.JSON(500, gin.H{"success": false, "error": "截图工具返回错误"})
+		return
+	}
+
+	// 2. 解析结果 JSON
+	textContent, ok := extmcp.AsTextContent(result.Content[0])
+	if !ok {
+		c.JSON(500, gin.H{"success": false, "error": "截图工具返回非文本内容"})
+		return
+	}
+	textResult := textContent.Text
+	var screenshotData struct {
+		ScreenshotURL string `json:"screenshotUrl"`
+		PageTitle     string `json:"pageTitle"`
+		PageURL       string `json:"pageUrl"`
+		Timestamp     string `json:"timestamp"`
+	}
+	if err := json.Unmarshal([]byte(textResult), &screenshotData); err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "解析截图结果失败: " + err.Error()})
+		return
+	}
+
+	// 3. 读取截图文件（screenshot server 返回的是 URL 路径 /api/screenshots/xxx.png）
+	fileName := filepath.Base(screenshotData.ScreenshotURL)
+	screenshotPath := filepath.Join("data", "screenshots", fileName)
+	fileBytes, err := os.ReadFile(screenshotPath)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "读取截图文件失败: " + err.Error()})
+		return
+	}
+
+	// 4. 计算客户端哈希（后端模拟）
+	clientHash := notary.ComputeBytesHash(fileBytes)
+
+	// 5. 自动固化
+	fixReq := evidence.FixationRequest{
+		CaseID:     req.CaseID,
+		SourceType: "web",
+		Filename:   filepath.Base(screenshotData.ScreenshotURL),
+		ClientHash: clientHash,
+		Collector:  "web_screenshot_api",
+		ClientIP:   c.ClientIP(),
+		Meta: map[string]string{
+			"pageTitle": screenshotData.PageTitle,
+			"pageURL":   screenshotData.PageURL,
+			"timestamp": screenshotData.Timestamp,
+		},
+	}
+	rec, err := notarizeSvc.Fixate(fixReq, fileBytes)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "固化失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"success":    true,
+		"message":    "网页截图取证并固化成功",
+		"screenshot": screenshotData,
+		"evidence":   rec,
+	})
+}
+
+// handleWebCrawl 抓取网页正文并自动固化
+// body: { url: string, caseId: string }
+func handleWebCrawl(c *gin.Context) {
+	if mcpClient == nil || notarizeSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "MCP 客户端或固化服务未初始化"})
+		return
+	}
+	var req struct {
+		URL    string `json:"url" binding:"required"`
+		CaseID string `json:"caseId" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": "参数错误: " + err.Error()})
+		return
+	}
+
+	// 1. 调用 MCP webcrawl 工具
+	result, err := mcpClient.CallTool("webcrawl", "crawl_page", map[string]interface{}{
+		"url": req.URL,
+	})
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "抓取失败: " + err.Error()})
+		return
+	}
+	if result.IsError || len(result.Content) == 0 {
+		c.JSON(500, gin.H{"success": false, "error": "抓取工具返回错误"})
+		return
+	}
+
+	// 2. 解析结果 JSON
+	textContent, ok := extmcp.AsTextContent(result.Content[0])
+	if !ok {
+		c.JSON(500, gin.H{"success": false, "error": "抓取工具返回非文本内容"})
+		return
+	}
+	textResult := textContent.Text
+	var crawlData struct {
+		Title       string            `json:"title"`
+		Content     string            `json:"content"`
+		URL         string            `json:"url"`
+		Author      string            `json:"author"`
+		PublishDate string            `json:"publishDate"`
+		WordCount   int               `json:"wordCount"`
+		Metadata    map[string]string `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(textResult), &crawlData); err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "解析抓取结果失败: " + err.Error()})
+		return
+	}
+
+	// 3. 保存为 Markdown 文件
+	fileName := fmt.Sprintf("crawl_%d.md", time.Now().UnixMilli())
+	caseDir := filepath.Join(notarizeSvc.DataDir(), req.CaseID, "web")
+	_ = os.MkdirAll(caseDir, 0755)
+	filePath := filepath.Join(caseDir, fileName)
+	mdContent := fmt.Sprintf("# %s\n\n> URL: %s\n> Author: %s\n> Date: %s\n> WordCount: %d\n\n---\n\n%s",
+		crawlData.Title, crawlData.URL, crawlData.Author, crawlData.PublishDate, crawlData.WordCount, crawlData.Content)
+	if err := os.WriteFile(filePath, []byte(mdContent), 0644); err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "保存抓取内容失败: " + err.Error()})
+		return
+	}
+
+	// 4. 读取并固化
+	fileBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "读取文件失败: " + err.Error()})
+		return
+	}
+	clientHash := notary.ComputeBytesHash(fileBytes)
+	fixReq := evidence.FixationRequest{
+		CaseID:     req.CaseID,
+		SourceType: "web",
+		Filename:   fileName,
+		ClientHash: clientHash,
+		Collector:  "web_crawl_api",
+		ClientIP:   c.ClientIP(),
+		Meta: map[string]string{
+			"title":       crawlData.Title,
+			"originalURL": crawlData.URL,
+			"author":      crawlData.Author,
+			"wordCount":   fmt.Sprintf("%d", crawlData.WordCount),
+		},
+	}
+	rec, err := notarizeSvc.Fixate(fixReq, fileBytes)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "固化失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"success":  true,
+		"message":  "网页抓取取证并固化成功",
+		"crawl":    crawlData,
+		"evidence": rec,
+	})
+}
+
+// ==================== 区块链锚定（论文 4.3.3）====================
+
+// handleChainAnchor 触发一个案件的证据批量上链（Merkle Tree 聚合）
+// body: { evidenceIds?: string[] }（可选，不填则全部未上链证据）
+func handleChainAnchor(c *gin.Context) {
+	if chainAnchor == nil {
+		c.JSON(500, gin.H{"success": false, "error": "区块链锚定服务未初始化"})
+		return
+	}
+	caseID := c.Param("caseId")
+	var req struct {
+		EvidenceIDs []string `json:"evidenceIds"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	var batch *evidence.AnchorBatch
+	var err error
+	if len(req.EvidenceIDs) > 0 {
+		batch, err = chainAnchor.AnchorSpecificEvidences(caseID, req.EvidenceIDs)
+	} else {
+		batch, err = chainAnchor.AnchorPendingEvidences(caseID)
+	}
+	if err != nil {
+		c.JSON(400, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "batch": batch})
+}
+
+func handleChainVerify(c *gin.Context) {
+	if chainAnchor == nil {
+		c.JSON(500, gin.H{"success": false, "error": "区块链锚定服务未初始化"})
+		return
+	}
+	caseID := c.Param("caseId")
+	evID := c.Param("evidenceId")
+	ok, reason, err := chainAnchor.VerifyEvidenceOnChain(caseID, evID)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "onChain": ok, "reason": reason})
+}
+
+func handleChainStats(c *gin.Context) {
+	if chainAnchor == nil {
+		c.JSON(500, gin.H{"success": false, "error": "区块链锚定服务未初始化"})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "stats": chainAnchor.Stats()})
+}
+
+// jsonUnmarshalTo 辅助：JSON 解析
+func jsonUnmarshalTo(s string, v interface{}) error {
+	return jsonDecode(s, v)
+}
+
+func jsonDecode(s string, v interface{}) error {
+	if s == "" {
+		return nil
+	}
+	return json.Unmarshal([]byte(s), v)
+}
+
 // ==================== Helpers ====================
 
 func handleScreenshot(c *gin.Context) {
@@ -726,4 +1153,82 @@ func stripXMLTags(s string) string {
 		}
 	}
 	return strings.TrimSpace(result.String())
+}
+
+// ==================== 报告管理（论文 4.5）====================
+
+// handleListReports 列出案件下所有报告
+func handleListReports(c *gin.Context) {
+	caseID := c.Param("caseId")
+	if notarizeSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "固化服务未初始化"})
+		return
+	}
+
+	reportsDir := filepath.Join(notarizeSvc.DataDir(), caseID, "reports")
+	entries, err := os.ReadDir(reportsDir)
+	if err != nil {
+		c.JSON(200, gin.H{"success": true, "reports": []interface{}{}, "count": 0})
+		return
+	}
+
+	var reportList []map[string]interface{}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" || strings.HasSuffix(entry.Name(), ".meta.json") {
+			continue
+		}
+		// 读取 .meta.json
+		metaName := strings.TrimSuffix(entry.Name(), ".json") + ".meta.json"
+		metaPath := filepath.Join(reportsDir, metaName)
+		data, err := os.ReadFile(metaPath)
+		if err != nil {
+			continue
+		}
+		var meta map[string]interface{}
+		if err := json.Unmarshal(data, &meta); err != nil {
+			continue
+		}
+		reportList = append(reportList, meta)
+	}
+
+	c.JSON(200, gin.H{"success": true, "reports": reportList, "count": len(reportList)})
+}
+
+// handleGetReport 获取单个报告详情（含 Markdown 正文）
+func handleGetReport(c *gin.Context) {
+	caseID := c.Param("caseId")
+	reportID := c.Param("reportId")
+	if notarizeSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "固化服务未初始化"})
+		return
+	}
+
+	reportsDir := filepath.Join(notarizeSvc.DataDir(), caseID, "reports")
+
+	// 读取 .meta.json
+	metaPath := filepath.Join(reportsDir, reportID+".meta.json")
+	metaData, err := os.ReadFile(metaPath)
+	if err != nil {
+		c.JSON(404, gin.H{"success": false, "error": "报告元数据不存在"})
+		return
+	}
+	var meta report.GeneratedReport
+	if err := json.Unmarshal(metaData, &meta); err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "解析报告元数据失败"})
+		return
+	}
+
+	// 读取 Markdown 正文
+	mdPath := filepath.Join(reportsDir, reportID+".md")
+	mdData, err := os.ReadFile(mdPath)
+	if err != nil {
+		c.JSON(404, gin.H{"success": false, "error": "报告正文不存在"})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"success":  true,
+		"meta":     meta,
+		"markdown": string(mdData),
+	})
 }

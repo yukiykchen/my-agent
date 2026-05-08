@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp /tmp/SUMMARY.md /Users/chen/Desktop/ToolCallCard_SUMMARY.md)",
+      "Bash(cp /tmp/toolcall_detailed_guide.md /Users/chen/Desktop/ToolCallCard_DetailedGuide.md)",
+      "Bash(cp /tmp/rendering_flow.txt /Users/chen/Desktop/ToolCallCard_RenderingFlow.txt)",
+      "Bash(cp /tmp/toolcall_card_analysis.md /Users/chen/Desktop/ToolCallCard_Analysis.md)"
+    ]
+  }
+}

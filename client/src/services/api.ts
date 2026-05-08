@@ -77,4 +77,44 @@ export const api = {
   getCases: () => request<any[]>('/cases'),
 
   getCaseDetail: (caseId: string) => request<any>(`/cases/${caseId}`),
+
+  /** 网页截图取证 + 自动固化 */
+  webScreenshot: (caseId: string, url: string) =>
+    request<{ success: boolean; message: string; screenshot: any; evidence: any }>(
+      '/evidence/screenshot',
+      { method: 'POST', body: JSON.stringify({ caseId, url }) },
+    ),
+
+  /** 网页抓取取证 + 自动固化 */
+  webCrawl: (caseId: string, url: string) =>
+    request<{ success: boolean; message: string; crawl: any; evidence: any }>(
+      '/evidence/crawl',
+      { method: 'POST', body: JSON.stringify({ caseId, url }) },
+    ),
+
+  /** 列出案件下所有已固化证据 */
+  listNotarized: (caseId: string) =>
+    request<{ success: boolean; evidences: any[]; count: number }>(`/notarize/${caseId}`),
+
+  /** 校验单条证据完整性 */
+  verifyEvidence: (caseId: string, evidenceId: string) =>
+    request<{ success: boolean; evidence: any; verify: any }>(
+      `/notarize/${caseId}/${evidenceId}/verify`,
+      { method: 'POST' },
+    ),
+
+  /** 批量上链 */
+  anchorEvidence: (caseId: string) =>
+    request<{ success: boolean; batch: any }>(
+      `/chain/${caseId}/anchor`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+
+  /** 列出案件下所有报告 */
+  listReports: (caseId: string) =>
+    request<{ success: boolean; reports: any[]; count: number }>(`/reports/${caseId}`),
+
+  /** 获取单个报告详情（含 Markdown 正文） */
+  getReport: (caseId: string, reportId: string) =>
+    request<{ success: boolean; meta: any; markdown: string }>(`/reports/${caseId}/${reportId}`),
 }
