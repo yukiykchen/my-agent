@@ -45,9 +45,9 @@ type Session struct {
 }
 
 var (
-	sessions      = make(map[string]*Session)
-	sessionsMu    sync.RWMutex
-	upgrader      = websocket.Upgrader{
+	sessions   = make(map[string]*Session)
+	sessionsMu sync.RWMutex
+	upgrader   = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
 	cfg           *config.Config
@@ -174,6 +174,7 @@ func main() {
 		api.POST("/notarize/fixate", handleNotarizeFixate)
 		api.GET("/notarize/:caseId", handleListNotarized)
 		api.GET("/notarize/:caseId/:evidenceId", handleGetNotarized)
+		api.GET("/notarize/:caseId/:evidenceId/file", handleGetNotarizedFile)
 		api.POST("/notarize/:caseId/:evidenceId/verify", handleVerifyNotarized)
 
 		// 监督链（Chain of Custody）
@@ -523,13 +524,14 @@ func handleGetEvidence(c *gin.Context) {
 
 // handleNotarizeFixate 即时固化一份证据
 // multipart/form-data:
-//   file:        文件
-//   caseId:      案件 ID
-//   evidenceId:  （可选）
-//   sourceType:  web / live_segment / short_video / document
-//   clientHash:  （必填）客户端 Web Crypto API 即时哈希
-//   collector:   采集者
-//   meta:        JSON 字符串（可选）
+//
+//	file:        文件
+//	caseId:      案件 ID
+//	evidenceId:  （可选）
+//	sourceType:  web / live_segment / short_video / document
+//	clientHash:  （必填）客户端 Web Crypto API 即时哈希
+//	collector:   采集者
+//	meta:        JSON 字符串（可选）
 func handleNotarizeFixate(c *gin.Context) {
 	if notarizeSvc == nil {
 		c.JSON(500, gin.H{"success": false, "error": "固化服务未初始化"})
@@ -603,6 +605,23 @@ func handleGetNotarized(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"success": true, "evidence": rec})
+}
+
+func handleGetNotarizedFile(c *gin.Context) {
+	caseID := c.Param("caseId")
+	evID := c.Param("evidenceId")
+	rec, err := notarizeSvc.GetNotarized(caseID, evID)
+	if err != nil {
+		c.JSON(404, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	filePath := evidenceStore.GetEvidenceFilePath(caseID, rec.FilePath)
+	if filePath == "" {
+		c.JSON(404, gin.H{"success": false, "error": "证据文件不存在"})
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", filepath.Base(rec.FilePath)))
+	c.File(filePath)
 }
 
 func handleVerifyNotarized(c *gin.Context) {
@@ -924,11 +943,11 @@ var allowedImageTypes = map[string]bool{
 
 // 支持的文档 MIME 类型
 var allowedDocTypes = map[string]bool{
-	"text/plain":                             true,
-	"text/markdown":                          true,
-	"text/csv":                               true,
-	"application/pdf":                        true,
-	"application/msword":                     true,
+	"text/plain":         true,
+	"text/markdown":      true,
+	"text/csv":           true,
+	"application/pdf":    true,
+	"application/msword": true,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
 }
 

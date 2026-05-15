@@ -1545,6 +1545,9 @@
   border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 .evidence-browser .action-btn:hover {
   background: rgba(255,255,255,0.1);
@@ -1564,11 +1567,16 @@
   max-width: 90vw;
   max-height: 90vh;
 }
-.evidence-browser .preview-img {
+.evidence-browser .preview-img,
+.evidence-browser .preview-video {
   max-width: 100%;
   max-height: 80vh;
   border-radius: 8px;
   border: 1px solid #313244;
+  background: #000;
+}
+.evidence-browser .preview-video {
+  width: min(90vw, 960px);
 }
 .evidence-browser .preview-close {
   position: absolute;

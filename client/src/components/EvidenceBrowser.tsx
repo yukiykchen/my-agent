@@ -63,7 +63,10 @@ export default function EvidenceBrowser({ caseId, onClose }: Props) {
     }
   }
 
+  const getFileName = (filePath: string) => filePath?.split('/').pop() || 'evidence-file'
   const isImage = (filename: string) => /\.(png|jpg|jpeg|webp|gif)$/i.test(filename)
+  const isVideo = (filename: string) => /\.(webm|mp4|mov|m4v)$/i.test(filename)
+  const canPreview = (ev: any) => isImage(ev.filePath || '') || isVideo(ev.filePath || '')
   const formatTime = (s: string) => {
     if (!s) return '—'
     const d = new Date(s)
@@ -122,7 +125,7 @@ export default function EvidenceBrowser({ caseId, onClose }: Props) {
               </div>
               <div className="meta-row">
                 <span className="meta-label">文件:</span>
-                <span className="meta-value">{ev.filePath?.split('/').pop()} ({ev.fileSize ? (ev.fileSize / 1024).toFixed(1) + ' KB' : '—'})</span>
+                <span className="meta-value">{getFileName(ev.filePath)} ({ev.fileSize ? (ev.fileSize / 1024).toFixed(1) + ' KB' : '—'})</span>
               </div>
               <div className="meta-row">
                 <span className="meta-label">SHA-256:</span>
@@ -145,9 +148,18 @@ export default function EvidenceBrowser({ caseId, onClose }: Props) {
             )}
 
             <div className="card-actions">
-              {isImage(ev.filePath) && (
+              {canPreview(ev) && (
                 <button className="action-btn" onClick={() => setPreview(ev)}>预览</button>
               )}
+              <a
+                className="action-btn"
+                href={api.evidenceFileUrl(caseId, ev.evidenceId)}
+                download={getFileName(ev.filePath)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                下载
+              </a>
               <button className="action-btn" onClick={() => handleVerify(ev.evidenceId)} disabled={verifying === ev.evidenceId}>
                 {verifying === ev.evidenceId ? '校验中...' : '校验'}
               </button>
@@ -160,13 +172,23 @@ export default function EvidenceBrowser({ caseId, onClose }: Props) {
         <div className="preview-overlay" onClick={(e) => { if (e.target === e.currentTarget) setPreview(null) }}>
           <div className="preview-box">
             <button className="preview-close" onClick={() => setPreview(null)}>✕</button>
-            <img
-              src={`/api/evidence/${caseId}/${preview.filePath?.split('/').pop()}`}
-              alt="证据预览"
-              className="preview-img"
-            />
+            {isVideo(preview.filePath || '') ? (
+              <video
+                src={api.evidenceFileUrl(caseId, preview.evidenceId)}
+                className="preview-video"
+                controls
+                autoPlay
+              />
+            ) : (
+              <img
+                src={api.evidenceFileUrl(caseId, preview.evidenceId)}
+                alt="证据预览"
+                className="preview-img"
+              />
+            )}
             <div className="preview-meta">
               <code>{preview.evidenceId}</code>
+              <span>{getFileName(preview.filePath)}</span>
               <span>{formatTime(preview.collectedAt)}</span>
             </div>
           </div>

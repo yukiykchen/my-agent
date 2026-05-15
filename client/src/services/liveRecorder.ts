@@ -49,12 +49,14 @@ function pickMimeType(): string {
 export class LiveRecorder {
   private stream: MediaStream | null = null
   private recorder: MediaRecorder | null = null
+  private segmentTimer: number | null = null
   private mimeType: string
   private segmentDurationMs: number
   private seq = 0
   private fixedCount = 0
   private options: LiveRecorderOptions
   private stopped = false
+  private finalStopNotified = false
 
   constructor(options: LiveRecorderOptions) {
     this.options = options
@@ -89,28 +91,43 @@ export class LiveRecorder {
       })
     })
 
-    const recorder = new MediaRecorder(stream, {
+    this.startStandaloneSegment()
+    this.options.onStatus?.('recording', { mimeType: this.mimeType, segmentMs: this.segmentDurationMs })
+  }
+
+  private startStandaloneSegment(): void {
+    if (this.stopped || !this.stream) return
+
+    const recorder = new MediaRecorder(this.stream, {
       mimeType: this.mimeType,
       // 取证场景优先保证可验证性而非画质，约 1 Mbps → 5 秒分段约 625 KB
       videoBitsPerSecond: this.options.videoBitsPerSecond ?? 1_000_000,
     })
+    this.recorder = recorder
 
     recorder.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return
       const seq = this.seq++
-      // 不阻塞录制线程，异步处理
+      // 不阻塞录制线程，异步处理。每次新建 MediaRecorder，可保证每个 WebM 都带完整 EBML 头，能够独立预览。
       this.handleSegment(seq, e.data).catch((err) => {
         this.options.onSegmentError?.(seq, err as Error)
       })
     }
 
     recorder.onstop = () => {
-      this.options.onStopped?.(this.seq)
+      if (this.stopped) {
+        this.notifyStoppedOnce()
+        return
+      }
+      this.startStandaloneSegment()
     }
 
-    this.recorder = recorder
-    recorder.start(this.segmentDurationMs)
-    this.options.onStatus?.('recording', { mimeType: this.mimeType, segmentMs: this.segmentDurationMs })
+    recorder.start()
+    this.segmentTimer = window.setTimeout(() => {
+      if (recorder.state !== 'inactive') {
+        recorder.stop()
+      }
+    }, this.segmentDurationMs)
   }
 
   /** 停止录制 */
@@ -118,12 +135,18 @@ export class LiveRecorder {
     if (this.stopped) return
     this.stopped = true
 
+    if (this.segmentTimer !== null) {
+      window.clearTimeout(this.segmentTimer)
+      this.segmentTimer = null
+    }
     if (this.recorder && this.recorder.state !== 'inactive') {
       try {
         this.recorder.stop()
       } catch {
         // noop
       }
+    } else {
+      this.notifyStoppedOnce()
     }
     if (this.stream) {
       this.stream.getTracks().forEach((t) => {
@@ -135,6 +158,12 @@ export class LiveRecorder {
       })
     }
     this.options.onStatus?.('stopped', { totalSegments: this.seq })
+  }
+
+  private notifyStoppedOnce(): void {
+    if (this.finalStopNotified) return
+    this.finalStopNotified = true
+    this.options.onStopped?.(this.seq)
   }
 
   /** 获取状态 */

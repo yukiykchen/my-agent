@@ -114,6 +114,10 @@ export const api = {
   listReports: (caseId: string) =>
     request<{ success: boolean; reports: any[]; count: number }>(`/reports/${caseId}`),
 
+  /** 获取固化证据原始文件访问地址 */
+  evidenceFileUrl: (caseId: string, evidenceId: string) =>
+    `${API_BASE}/notarize/${encodeURIComponent(caseId)}/${encodeURIComponent(evidenceId)}/file`,
+
   /** 获取单个报告详情（含 Markdown 正文） */
   getReport: (caseId: string, reportId: string) =>
     request<{ success: boolean; meta: any; markdown: string }>(`/reports/${caseId}/${reportId}`),
