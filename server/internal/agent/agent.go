@@ -24,11 +24,16 @@ type ToolCallEvent struct {
 
 // Config Agent 配置
 type Config struct {
-	MaxIterations  int
-	PromptTemplate string
-	Verbose        bool
-	OnToolCall     func(ToolCallEvent)
-	OnThinking     func(step string)
+	MaxIterations         int
+	PromptTemplate        string
+	Verbose               bool
+	OnToolCall            func(ToolCallEvent)
+	OnThinking            func(step string)
+	RoleName              string
+	RolePrompt            string
+	SubAgents             []SubAgentSpec
+	SubAgentMaxIterations int
+	DisableSubAgents      bool
 }
 
 // Agent 智能体
@@ -48,13 +53,25 @@ func New(provider providers.Provider, registry *tools.Registry, promptMgr *promp
 	if cfg.MaxIterations <= 0 {
 		cfg.MaxIterations = 20
 	}
-	return &Agent{
+	localRegistry := tools.NewRegistry()
+	if registry != nil {
+		localRegistry = registry.Clone()
+	}
+	if cfg.DisableSubAgents {
+		localRegistry.Unregister("delegate_to_subagent")
+	}
+
+	a := &Agent{
 		provider:     provider,
-		toolRegistry: registry,
+		toolRegistry: localRegistry,
 		promptMgr:    promptMgr,
 		config:       cfg,
 		messages:     make([]models.Message, 0),
 	}
+	if !cfg.DisableSubAgents {
+		a.registerSubAgentDelegationTool()
+	}
+	return a
 }
 
 // Initialize 初始化 Agent
@@ -65,6 +82,20 @@ func (a *Agent) Initialize() error {
 		if content, err := a.promptMgr.GetContent(a.config.PromptTemplate); err == nil {
 			systemPrompt = content
 		}
+	}
+
+	if a.config.RoleName != "" || a.config.RolePrompt != "" {
+		systemPrompt += "\n\n## 当前 Agent 角色\n"
+		if a.config.RoleName != "" {
+			systemPrompt += "角色名称：" + a.config.RoleName + "\n"
+		}
+		if a.config.RolePrompt != "" {
+			systemPrompt += a.config.RolePrompt + "\n"
+		}
+	}
+
+	if !a.config.DisableSubAgents {
+		systemPrompt += a.subAgentCoordinationPrompt()
 	}
 
 	// 附加可用工具列表

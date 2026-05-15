@@ -47,6 +47,24 @@ func (r *Registry) Register(name, description string, params models.FunctionPara
 	}
 }
 
+// Unregister 移除工具
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
+// Clone 克隆工具注册中心
+func (r *Registry) Clone() *Registry {
+	cloned := NewRegistry()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for name, tool := range r.tools {
+		cloned.tools[name] = tool
+	}
+	return cloned
+}
+
 // Execute 执行工具
 func (r *Registry) Execute(name string, args map[string]interface{}) (string, error) {
 	r.mu.RLock()
