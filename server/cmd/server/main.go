@@ -661,6 +661,16 @@ func handleVerifyCustody(c *gin.Context) {
 
 // ==================== 网页取证（直接驱动 MCP + 自动固化）====================
 
+func mcpToolResultText(contents []extmcp.Content) string {
+	if len(contents) == 0 {
+		return "无返回内容"
+	}
+	if textContent, ok := extmcp.AsTextContent(contents[0]); ok {
+		return textContent.Text
+	}
+	return "非文本错误内容"
+}
+
 // handleWebScreenshot 对指定 URL 截图并自动固化
 // body: { url: string, caseId: string }
 func handleWebScreenshot(c *gin.Context) {
@@ -686,7 +696,7 @@ func handleWebScreenshot(c *gin.Context) {
 		return
 	}
 	if result.IsError || len(result.Content) == 0 {
-		c.JSON(500, gin.H{"success": false, "error": "截图工具返回错误"})
+		c.JSON(500, gin.H{"success": false, "error": "截图工具返回错误: " + mcpToolResultText(result.Content)})
 		return
 	}
 
@@ -773,7 +783,7 @@ func handleWebCrawl(c *gin.Context) {
 		return
 	}
 	if result.IsError || len(result.Content) == 0 {
-		c.JSON(500, gin.H{"success": false, "error": "抓取工具返回错误"})
+		c.JSON(500, gin.H{"success": false, "error": "抓取工具返回错误: " + mcpToolResultText(result.Content)})
 		return
 	}
 

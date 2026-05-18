@@ -1280,6 +1280,16 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+.web-capture-panel .capture-tip {
+  color: #a6adc8;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(137, 180, 250, 0.25);
+  border-radius: 6px;
+  background: rgba(137, 180, 250, 0.08);
+}
 .web-capture-panel .error-msg {
   color: #f38ba8;
   font-size: 13px;

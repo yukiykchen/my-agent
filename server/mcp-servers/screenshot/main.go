@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,21 +94,24 @@ func (bm *BrowserManager) TakeScreenshot(url string, fullPage bool) (*Screenshot
 		return nil, err
 	}
 
-	// 创建新页面
-	page, err := browser.Page(proto.TargetCreateTarget{URL: url})
+	// 先创建空白页，设置 UA/视口后再导航；移动电商页对 UA 比较敏感。
+	page, err := browser.Page(proto.TargetCreateTarget{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create page: %v", err)
 	}
 	defer page.Close()
 
-	// 等待页面加载完成，超时 15 秒
-	err = page.Timeout(15 * time.Second).WaitLoad()
-	if err != nil {
-		return nil, fmt.Errorf("page load timeout: %v", err)
+	viewport := configurePageForURL(page, url)
+	if err := page.Navigate(url); err != nil {
+		return nil, fmt.Errorf("failed to navigate page: %v", err)
 	}
 
-	// 额外等待 2 秒让动态内容渲染
-	time.Sleep(2 * time.Second)
+	// 等待页面加载完成。部分电商页长连接不会触发完整 load，超时后仍继续截图，避免取证失败。
+	if err := page.Timeout(20 * time.Second).WaitLoad(); err != nil {
+		time.Sleep(3 * time.Second)
+	} else {
+		time.Sleep(2 * time.Second)
+	}
 
 	// 获取页面标题
 	title, _ := page.Eval(`() => document.title`)
@@ -142,8 +146,43 @@ func (bm *BrowserManager) TakeScreenshot(url string, fullPage bool) (*Screenshot
 		PageTitle:     pageTitle,
 		PageURL:       url,
 		Timestamp:     time.Now().Format(time.RFC3339),
-		Viewport:      Viewport{Width: 1280, Height: 720},
+		Viewport:      viewport,
 	}, nil
+}
+
+func configurePageForURL(page *rod.Page, rawURL string) Viewport {
+	if isMobileURL(rawURL) {
+		_ = page.SetUserAgent(&proto.NetworkSetUserAgentOverride{
+			UserAgent:      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+			AcceptLanguage: "zh-CN,zh;q=0.9,en;q=0.8",
+			Platform:       "iPhone",
+		})
+		_ = page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+			Width:             390,
+			Height:            844,
+			DeviceScaleFactor: 2,
+			Mobile:            true,
+		})
+		return Viewport{Width: 390, Height: 844}
+	}
+
+	_ = page.SetUserAgent(&proto.NetworkSetUserAgentOverride{
+		UserAgent:      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+		AcceptLanguage: "zh-CN,zh;q=0.9,en;q=0.8",
+		Platform:       "MacIntel",
+	})
+	_ = page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+		Width:             1280,
+		Height:            720,
+		DeviceScaleFactor: 1,
+		Mobile:            false,
+	})
+	return Viewport{Width: 1280, Height: 720}
+}
+
+func isMobileURL(rawURL string) bool {
+	u := strings.ToLower(rawURL)
+	return strings.Contains(u, "mobile.") || strings.Contains(u, "://m.") || strings.Contains(u, "yangkeduo.com") || strings.Contains(u, "pinduoduo.com")
 }
 
 func (bm *BrowserManager) FetchPage(url string) (*FetchPageResult, error) {
@@ -152,21 +191,22 @@ func (bm *BrowserManager) FetchPage(url string) (*FetchPageResult, error) {
 		return nil, err
 	}
 
-	// 创建新页面
-	page, err := browser.Page(proto.TargetCreateTarget{URL: url})
+	page, err := browser.Page(proto.TargetCreateTarget{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create page: %v", err)
 	}
 	defer page.Close()
 
-	// 等待页面加载完成
-	err = page.Timeout(15 * time.Second).WaitLoad()
-	if err != nil {
-		return nil, fmt.Errorf("page load timeout: %v", err)
+	configurePageForURL(page, url)
+	if err := page.Navigate(url); err != nil {
+		return nil, fmt.Errorf("failed to navigate page: %v", err)
 	}
 
-	// 额外等待动态内容渲染
-	time.Sleep(2 * time.Second)
+	if err := page.Timeout(20 * time.Second).WaitLoad(); err != nil {
+		time.Sleep(3 * time.Second)
+	} else {
+		time.Sleep(2 * time.Second)
+	}
 
 	// 获取页面标题
 	titleVal, _ := page.Eval(`() => document.title`)

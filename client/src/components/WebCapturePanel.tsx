@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../services/api'
+import { captureLoggedInBrowserPage } from '../services/browserCapture'
 
 interface Props {
   caseId: string
@@ -9,12 +10,12 @@ interface Props {
 export default function WebCapturePanel({ caseId, onClose }: Props) {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
-  const [mode, setMode] = useState<'screenshot' | 'crawl'>('screenshot')
+  const [mode, setMode] = useState<'screenshot' | 'browser' | 'crawl'>('screenshot')
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
 
   const handleCapture = async () => {
-    if (!url.trim() || loading) return
+    if ((mode !== 'browser' && !url.trim()) || loading) return
     setLoading(true)
     setError('')
     setResult(null)
@@ -26,6 +27,13 @@ export default function WebCapturePanel({ caseId, onClose }: Props) {
         } else {
           setError(data.message || '截图失败')
         }
+      } else if (mode === 'browser') {
+        const data = await captureLoggedInBrowserPage({
+          caseId,
+          pageUrl: url.trim(),
+          collector: 'browser_tab_capture',
+        })
+        setResult({ type: 'browser', success: true, message: '当前浏览器页面截图并固化成功', ...data })
       } else {
         const data = await api.webCrawl(caseId, url.trim())
         if (data.success) {
@@ -68,7 +76,13 @@ export default function WebCapturePanel({ caseId, onClose }: Props) {
             className={mode === 'screenshot' ? 'active' : ''}
             onClick={() => { setMode('screenshot'); setResult(null); setError('') }}
           >
-            网页截图
+            无头截图
+          </button>
+          <button
+            className={mode === 'browser' ? 'active' : ''}
+            onClick={() => { setMode('browser'); setResult(null); setError('') }}
+          >
+            已登录截图
           </button>
           <button
             className={mode === 'crawl' ? 'active' : ''}
@@ -81,7 +95,7 @@ export default function WebCapturePanel({ caseId, onClose }: Props) {
         <div className="url-input-row">
           <input
             type="text"
-            placeholder={mode === 'screenshot' ? '请输入目标网页 URL，如 https://item.taobao.com/xxx' : '请输入文章/商品页 URL'}
+            placeholder={mode === 'browser' ? '可选：粘贴当前页面 URL 作为证据元数据' : mode === 'screenshot' ? '请输入目标网页 URL，如 https://item.taobao.com/xxx' : '请输入文章/商品页 URL'}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCapture()}
@@ -89,11 +103,17 @@ export default function WebCapturePanel({ caseId, onClose }: Props) {
           <button
             className="capture-btn"
             onClick={handleCapture}
-            disabled={loading || !isValidUrl(url.trim())}
+            disabled={loading || (mode !== 'browser' && !isValidUrl(url.trim()))}
           >
-            {loading ? '取证中...' : mode === 'screenshot' ? '截图取证' : '抓取取证'}
+            {loading ? '取证中...' : mode === 'browser' ? '选择已登录标签页' : mode === 'screenshot' ? '截图取证' : '抓取取证'}
           </button>
         </div>
+
+        {mode === 'browser' && (
+          <div className="capture-tip">
+            用于需要登录态的页面：点击后在浏览器弹窗中选择已经登录的目标标签页，系统会截取当前可见区域并立即固化。
+          </div>
+        )}
 
         {error && <div className="error-msg">{error}</div>}
 
@@ -104,14 +124,14 @@ export default function WebCapturePanel({ caseId, onClose }: Props) {
               <span className="evidence-id">证据ID: {result.evidence?.evidenceId}</span>
             </div>
 
-            {result.type === 'screenshot' && result.screenshot && (
+            {(result.type === 'screenshot' || result.type === 'browser') && result.screenshot && (
               <div className="screenshot-preview">
                 <div className="meta-row">
                   <span>标题: {result.screenshot.pageTitle || '—'}</span>
                   <span>尺寸: {result.screenshot.viewport?.width}×{result.screenshot.viewport?.height}</span>
                 </div>
                 <img
-                  src={`/api/evidence/${caseId}/${result.screenshot.screenshotUrl?.split('/').pop()}`}
+                  src={result.evidence?.evidenceId ? api.evidenceFileUrl(caseId, result.evidence.evidenceId) : `/api/evidence/${caseId}/${result.screenshot.screenshotUrl?.split('/').pop()}`}
                   alt="网页截图"
                   className="screenshot-img"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
