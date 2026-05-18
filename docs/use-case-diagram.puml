@@ -1,0 +1,84 @@
+@startuml
+left to right direction
+
+skinparam actorStyle awesome
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam usecase {
+  BackgroundColor #F8FBFF
+  BorderColor #2563EB
+  ArrowColor #475569
+  FontColor #1F2937
+}
+skinparam rectangle {
+  BorderColor #2563EB
+  BackgroundColor #FFFFFF
+  RoundCorner 18
+}
+
+title 网络侵权证据智能系统用例图
+caption 保留 include/extend 关系，突出核心取证业务链路
+
+actor "企业法务/业务人员" as User
+actor "法务/律师" as Lawyer
+actor "系统管理员" as Admin
+
+actor "外部平台" as Platform <<external>>
+actor "外部存证/AI服务" as External <<external>>
+
+rectangle "网络侵权证据智能系统" {
+  usecase "提交侵权线索" as UC_Submit
+  usecase "创建取证任务" as UC_CreateTask
+
+  usecase "网页取证" as UC_WebCapture
+  usecase "直播/视频取证" as UC_LiveCapture
+  usecase "已登录页面截图" as UC_LoginShot
+
+  usecase "证据固化" as UC_Fixate
+  usecase "查看与校验证据" as UC_Verify
+  usecase "区块链存证" as UC_Anchor
+
+  usecase "智能侵权分析" as UC_Analyze
+  usecase "生成/查看报告" as UC_Report
+
+  usecase "系统配置与状态查看" as UC_Config
+}
+
+User --> UC_Submit
+User --> UC_CreateTask
+User --> UC_WebCapture
+User --> UC_LiveCapture
+User --> UC_Verify
+User --> UC_Report
+
+Lawyer --> UC_Verify
+Lawyer --> UC_Analyze
+Lawyer --> UC_Report
+
+Admin --> UC_Config
+
+Platform --> UC_WebCapture
+Platform --> UC_LiveCapture
+External --> UC_Fixate
+External --> UC_Anchor
+External --> UC_Analyze
+
+UC_CreateTask ..> UC_Submit : <<include>>
+
+' 网页取证和直播取证都会产生证据，证据需要固化
+UC_WebCapture ..> UC_Fixate : <<include>>
+UC_LiveCapture ..> UC_Fixate : <<include>>
+UC_WebCapture ..> UC_LoginShot : <<extend>>\n需要登录态
+
+' 证据固化后需要查看与校验，智能侵权分析基于已校验证据
+UC_Verify ..> UC_Fixate : <<include>>
+UC_Analyze ..> UC_Verify : <<include>>
+
+' 报告和校验也需要查看与校验证据
+UC_Report ..> UC_Analyze : <<include>>
+UC_Report ..> UC_Verify : <<include>>
+
+' 区块链存证是可选扩展
+UC_Anchor ..> UC_Verify : <<extend>>\n需要上链时
+
+@enduml

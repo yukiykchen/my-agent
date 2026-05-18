@@ -1,0 +1,160 @@
+@startuml
+left to right direction
+
+skinparam backgroundColor #FFFFFF
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam shadowing false
+skinparam usecase {
+  BackgroundColor #FFFFFF
+  BorderColor #0F766E
+  FontColor #334155
+}
+skinparam rectangle {
+  BorderColor #2563EB
+  BackgroundColor #F8FBFF
+  RoundCorner 18
+}
+skinparam ArrowColor #475569
+skinparam ArrowFontColor #64748B
+
+title 网络侵权证据智能系统用例图
+caption 描述系统参与者与核心业务用例
+
+actor "权利人/业务人员" as Owner
+actor "法务/律师" as Lawyer
+actor "系统管理员" as Admin
+
+actor "网页/直播平台" as Platform <<external>>
+actor "大语言模型服务" as LLM <<external>>
+actor "可信时间戳服务" as TSA <<external>>
+actor "区块链存证服务" as Chain <<external>>
+actor "MCP工具服务" as MCP <<external>>
+
+rectangle "网络侵权证据智能系统" {
+
+  package "案件与任务管理" {
+    usecase "提交侵权线索" as UC_Submit
+    usecase "创建取证案件" as UC_CreateCase
+    usecase "选择取证场景" as UC_SelectScene
+    usecase "查看案件/任务状态" as UC_TaskStatus
+  }
+
+  package "证据采集" {
+    usecase "静态网页取证" as UC_WebCapture
+    usecase "无头浏览器截图" as UC_HeadlessShot
+    usecase "已登录页面截图" as UC_LoginShot
+    usecase "网页正文抓取" as UC_Crawl
+
+    usecase "直播/视频取证" as UC_LiveCapture
+    usecase "录屏分段采集" as UC_Record
+    usecase "关键帧抽取" as UC_KeyFrame
+    usecase "ASR语音识别" as UC_ASR
+    usecase "OCR画面识别" as UC_OCR
+  }
+
+  package "证据固化与存证" {
+    usecase "计算SHA-256哈希" as UC_Hash
+    usecase "即时证据固化" as UC_Fixate
+    usecase "申请可信时间戳" as UC_TSA
+    usecase "只读保护" as UC_ReadOnly
+    usecase "区块链摘要存证" as UC_Chain
+    usecase "Merkle批量聚合" as UC_Merkle
+    usecase "生成证据清单" as UC_Manifest
+    usecase "记录证据流转日志" as UC_CustodyLog
+  }
+
+  package "证据查看与校验" {
+    usecase "查看证据列表" as UC_List
+    usecase "预览/下载证据文件" as UC_Preview
+    usecase "校验证据完整性" as UC_Verify
+    usecase "查看证据流转日志" as UC_ViewCustody
+    usecase "下载证据包" as UC_DownloadPackage
+  }
+
+  package "智能分析与报告" {
+    usecase "智能侵权分析" as UC_AIAnalyze
+    usecase "法律三段论推理" as UC_LegalReason
+    usecase "生成法律分析报告" as UC_Report
+    usecase "查看/导出报告" as UC_ExportReport
+  }
+
+  package "系统管理" {
+    usecase "配置模型服务" as UC_ModelConfig
+    usecase "配置MCP工具服务" as UC_MCPConfig
+    usecase "管理存证参数" as UC_NotaryConfig
+  }
+}
+
+' ===== Primary actors =====
+Owner --> UC_Submit
+Owner --> UC_CreateCase
+Owner --> UC_SelectScene
+Owner --> UC_WebCapture
+Owner --> UC_LiveCapture
+Owner --> UC_TaskStatus
+Owner --> UC_List
+Owner --> UC_Preview
+Owner --> UC_Verify
+Owner --> UC_Report
+Owner --> UC_ExportReport
+
+Lawyer --> UC_List
+Lawyer --> UC_Preview
+Lawyer --> UC_Verify
+Lawyer --> UC_ViewCustody
+Lawyer --> UC_AIAnalyze
+Lawyer --> UC_Report
+Lawyer --> UC_ExportReport
+Lawyer --> UC_DownloadPackage
+
+Admin --> UC_ModelConfig
+Admin --> UC_MCPConfig
+Admin --> UC_NotaryConfig
+
+' ===== External supporting actors =====
+Platform --> UC_WebCapture
+Platform --> UC_LiveCapture
+MCP --> UC_HeadlessShot
+MCP --> UC_Crawl
+LLM --> UC_AIAnalyze
+TSA --> UC_TSA
+Chain --> UC_Chain
+
+' ===== Include / Extend relationships =====
+UC_Submit ..> UC_CreateCase : <<include>>
+UC_CreateCase ..> UC_SelectScene : <<include>>
+
+UC_SelectScene ..> UC_WebCapture : <<extend>>\n静态网页/图文
+UC_SelectScene ..> UC_LiveCapture : <<extend>>\n直播/视频
+
+UC_WebCapture ..> UC_HeadlessShot : <<include>>
+UC_WebCapture ..> UC_Crawl : <<extend>>
+UC_WebCapture ..> UC_LoginShot : <<extend>>\n需要登录态
+
+UC_LiveCapture ..> UC_Record : <<include>>
+UC_LiveCapture ..> UC_KeyFrame : <<include>>
+UC_LiveCapture ..> UC_ASR : <<extend>>
+UC_LiveCapture ..> UC_OCR : <<extend>>
+
+UC_WebCapture ..> UC_Fixate : <<include>>
+UC_LiveCapture ..> UC_Fixate : <<include>>
+UC_Fixate ..> UC_Hash : <<include>>
+UC_Fixate ..> UC_TSA : <<include>>
+UC_Fixate ..> UC_ReadOnly : <<include>>
+UC_Fixate ..> UC_Manifest : <<include>>
+UC_Fixate ..> UC_CustodyLog : <<include>>
+UC_Chain ..> UC_Merkle : <<include>>
+
+UC_Verify ..> UC_Hash : <<include>>
+UC_Verify ..> UC_TSA : <<include>>
+UC_Verify ..> UC_Chain : <<extend>>
+UC_ViewCustody ..> UC_CustodyLog : <<include>>
+
+UC_Report ..> UC_List : <<include>>
+UC_Report ..> UC_Verify : <<include>>
+UC_Report ..> UC_AIAnalyze : <<include>>
+UC_AIAnalyze ..> UC_LegalReason : <<include>>
+UC_DownloadPackage ..> UC_Manifest : <<include>>
+
+@enduml

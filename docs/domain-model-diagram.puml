@@ -1,0 +1,149 @@
+@startuml
+left to right direction
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam backgroundColor #FFFFFF
+skinparam class {
+  BackgroundColor #F8FBFF
+  BorderColor #2563EB
+  ArrowColor #475569
+  FontColor #1F2937
+}
+skinparam package {
+  BackgroundColor #FFFFFF
+  BorderColor #CBD5E1
+}
+
+title 网络侵权证据智能系统业务领域模型图
+caption 面向“线索提交—案件建档—证据采集—可信固化—法律分析—报告出证”的核心业务对象
+
+package "线索与案件" {
+  class "侵权线索" as Clue {
+    线索ID
+    线索来源
+    目标链接
+    平台名称
+    侵权描述
+    提交时间
+  }
+
+  class "案件" as Case {
+    案件ID
+    案件名称
+    案件状态
+    创建时间
+    更新时间
+  }
+
+  class "取证任务" as Task {
+    任务ID
+    取证场景
+    目标地址
+    任务状态
+    创建时间
+    完成时间
+  }
+}
+
+package "证据采集" {
+  class "证据" as Evidence {
+    证据ID
+    证据类型
+    来源地址
+    采集时间
+    内容摘要
+    元数据
+  }
+
+  class "证据文件" as EvidenceFile {
+    文件名称
+    文件路径
+    文件大小
+    文件类型
+  }
+}
+
+package "可信固化" {
+  class "证据固化记录" as NotarizedEvidence {
+    固化ID
+    固化时间
+    完整性状态
+    采集者
+    固化耗时
+  }
+
+  class "哈希链" as HashChain {
+    客户端哈希
+    服务端哈希
+    时间戳哈希
+    区块链哈希
+  }
+
+  class "时间戳凭证" as TimestampToken {
+    时间戳序列号
+    生成时间
+    哈希算法
+    签名信息
+  }
+
+  class "上链记录" as ChainRecord {
+    交易哈希
+    区块高度
+    Merkle根
+    上链时间
+  }
+
+  class "证据流转日志" as CustodyLog {
+    事件ID
+    事件类型
+    操作者
+    操作时间
+    链式哈希
+  }
+}
+
+package "分析与出证" {
+  class "分析报告" as Report {
+    报告ID
+    生成时间
+    报告哈希
+    证据数量
+  }
+
+  class "法律分析" as LegalAnalysis {
+    侵权类型
+    法律依据
+    事实认定
+    分析结论
+  }
+}
+
+Clue "1" --> "1" Case : 形成案件
+Case "1" o-- "0..*" Task : 包含
+Task "1" --> "0..*" Evidence : 产生
+Case "1" o-- "0..*" Evidence : 归档
+
+Evidence "1" o-- "1..*" EvidenceFile : 包含
+Evidence "1" --> "0..1" NotarizedEvidence : 固化为
+
+NotarizedEvidence "1" *-- "1" EvidenceFile : 固化文件
+NotarizedEvidence "1" *-- "1" HashChain : 完整性校验
+NotarizedEvidence "1" *-- "0..1" TimestampToken : 时间证明
+NotarizedEvidence "1" --> "0..1" ChainRecord : 摘要上链
+
+Case "1" o-- "0..*" CustodyLog : 记录
+CustodyLog "0..*" --> "0..1" NotarizedEvidence : 关联证据
+
+Case "1" o-- "0..*" Report : 生成
+Report "1" *-- "1..*" LegalAnalysis : 包含
+Report "1" --> "1..*" NotarizedEvidence : 引用证据
+
+note right of HashChain
+四值哈希链用于证明证据完整性：
+客户端哈希、服务端哈希、时间戳哈希、区块链哈希。
+end note
+
+@enduml
